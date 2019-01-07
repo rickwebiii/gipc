@@ -1,5 +1,6 @@
 *.rs text eol=lf
 *.toml text eol=lf
 *.md text eol=lf
+*.lock text eol=lf
 .gitattributes text eol=lf
 .gitignore text eol=lf

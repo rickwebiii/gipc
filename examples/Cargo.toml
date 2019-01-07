@@ -6,3 +6,6 @@ edition = "2018"
 
 [dependencies]
 gipc = { path = "../gipc" }
+
+[build-dependencies]
+dirs = "1.0.4"
