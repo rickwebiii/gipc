@@ -1,0 +1,9 @@
+[package]
+name = "gipc"
+version = "0.1.0"
+authors = ["rickwebiii <rick.weber.iii@gmail.com>"]
+edition = "2018"
+path="src/lib.rs"
+
+[dependencies]
+grpcio = "0.4.1"
