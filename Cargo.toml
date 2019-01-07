@@ -1,2 +1,2 @@
 [workspace]
-members=["gipc"]
+members=["gipc", "examples"]

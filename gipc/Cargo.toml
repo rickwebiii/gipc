@@ -6,4 +6,5 @@ edition = "2018"
 path="src/lib.rs"
 
 [dependencies]
-grpcio = "0.4.1"
+grpcio = { version = "0.4.1", default-features = false, features = ["protobuf-codec"] }
+named_pipe = "0.4.0"
