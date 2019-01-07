@@ -1,2 +1,6 @@
 [workspace]
-members=["gipc", "examples"]
+members=[
+  "gipc",
+  "examples",
+  "tools"
+]
