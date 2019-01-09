@@ -2,5 +2,6 @@
 members=[
   "gipc",
   "examples",
+  "ipc",
   "tools"
 ]

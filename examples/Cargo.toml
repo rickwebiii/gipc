@@ -5,8 +5,10 @@ authors = ["rickwebiii <rick.weber.iii@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-gipc = { path = "../gipc" }
 tools = { path = "../tools" }
+grpcio = { path = "../gipc", package = "gipc" }
+protobuf = "2.0.5"
+futures = "0.1.25"
 
 [build-dependencies]
 dirs = "1.0.4"
