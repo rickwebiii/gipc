@@ -1,7 +1,7 @@
 [workspace]
 members=[
-  "gipc",
-  "examples",
+  #"gipc",
+  #"examples",
   "ipc",
-  "tools"
+  #"tools"
 ]

@@ -1,18 +1,6 @@
-pub mod ipc;
+#![feature(async_await, await_macro, futures_api)]
 
-pub use self::ipc::{
-  CallOption,
-  Client,
-  ClientUnaryReceiver,
-  Channel,
-  Error,
-  Marshaller,
-  Method,
-  MethodType,
-  pb_de,
-  pb_ser,
-  Result,
-  RpcContext,
-  Service,
-  UnarySink
-};
+mod server_builder;
+mod api_method;
+
+pub use self::server_builder::{ServerBuilder};
