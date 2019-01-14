@@ -118,13 +118,13 @@ impl NamedPipeServer {
         ERROR_IO_PENDING => { 
           debug!("Connection on named pipe {:?} is pending.", self.handle.value); 
         },
-        ERROR_PIPE_CONNECTED => { 
+        ERROR_PIPE_CONNECTED => {
+          debug!("Client connected on named pipe {:?}", self.handle.value);
           return Ok((NamedPipeConnection::new(self.handle), new_pipe))
         },
         _ => { return Err(err); }
       }
-
-    }
+    };
 
     await!(overlapped.await())?; 
 
@@ -152,22 +152,45 @@ impl NamedPipeConnection {
   }
 
   pub async fn read<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
-    let mut overlapped = Overlapped::new()?;
     let mut bytes_read: u32 = 0;
+
+    while bytes_read == 0 {
+      bytes_read = await!(self.read_internal(data))?;
+      debug!("Try again");
+    }
+
+    debug!("Got data");
+
+    Ok(bytes_read)
+  }
+
+  pub async fn read_internal<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
+    let mut overlapped = Overlapped::new()?;
 
     debug!("Reading up to {} bytes on named pipe {:?}", data.len(), self.handle.value);
 
-    unsafe {
+    let result = unsafe {
       ReadFile(
         self.handle.value,
         data.as_mut_ptr() as *mut c_void,
         data.len() as u32,
-        &mut bytes_read,
+        ptr::null_mut(),
         overlapped.get_mut()
       )
     };
 
-    await!(overlapped.await())?;
+    debug!("called");
+
+    if result != TRUE {
+      let err = std::io::Error::last_os_error();
+
+      match err.raw_os_error().unwrap() as u32 {
+        ERROR_IO_PENDING => { }, // Expected, as we're not blocking on I/O
+        _ => { return Err(err); } 
+      }
+    }
+
+    let bytes_read: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;
 
     debug!("Read {} bytes on named pipe {:?}", bytes_read, self.handle.value);
 
@@ -180,17 +203,26 @@ impl NamedPipeConnection {
 
     debug!("Writing up to {} bytes on named pipe {:?}", data.len(), self.handle.value);
 
-    unsafe {
+    let result = unsafe {
       WriteFile(
         self.handle.value,
         data.as_ptr() as *const c_void,
         data.len() as u32,
-        &mut bytes_written,
+        ptr::null_mut(),
         overlapped.get_mut()
       )
     };
 
-    await!(overlapped.await())?;
+    if result != TRUE {
+      let err = std::io::Error::last_os_error();
+
+      match err.raw_os_error().unwrap() as u32 {
+        ERROR_IO_PENDING => { }, // Expected, as we're not blocking on I/O
+        _ => { return Err(err); } 
+      }
+    }
+
+    let bytes_written: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;
 
     debug!("Wrote {} bytes on named pipe {:?}", bytes_written, self.handle.value);
 
@@ -232,7 +264,7 @@ impl NamedPipeClient {
 #[test]
 fn can_connect_to_named_pipe() {
   use std::thread;
-  use std::sync::mpsc::{channel, Sender};
+  use std::sync::mpsc::{channel, Receiver, Sender};
   use futures::executor::ThreadPoolBuilder;
   use simplelog::{Config, LevelFilter, TermLogger};
   use log::{info};
@@ -243,6 +275,7 @@ fn can_connect_to_named_pipe() {
 
   let (server_started_tx, server_started_rx) = channel();
   let (client_connected_tx, client_connected_rx) = channel();
+  let (server_got_connection_tx, server_got_connection_rx) = channel();
 
   let server_thread = thread::spawn(move || {
     let mut pool = ThreadPoolBuilder::new()
@@ -250,17 +283,19 @@ fn can_connect_to_named_pipe() {
       .create()
       .unwrap();
 
-    async fn run_server(start_tx: Sender<()>) -> std::io::Result<()> {
+    async fn run_server(start_tx: Sender<()>, connect_tx: Sender<()>) -> std::io::Result<()> {
       let server = NamedPipeServer::new("horse")?;
       start_tx.send(()).unwrap();
 
       let (_conection, _server) = await!(server.wait_for_connection())?;
 
+      connect_tx.send(()).unwrap();
+
       Ok(())
     }
 
     pool.run(async {
-      match await!(run_server(server_started_tx)) {
+      match await!(run_server(server_started_tx, server_got_connection_tx)) {
         Ok(_) => { client_connected_tx.send(()).unwrap(); },
         Err(err) => { panic!(format!("Test failed {}", err)); }
       };
@@ -273,15 +308,18 @@ fn can_connect_to_named_pipe() {
       .create()
       .unwrap();
 
-    async fn run_client() -> std::io::Result<()> {
+    async fn run_client(connect_rx: Receiver<()>) -> std::io::Result<()> {
       let _client = NamedPipeClient::new("horse")?;
+
+      connect_rx.recv().unwrap();
 
       Ok(())
     }
+
     server_started_rx.recv().unwrap();
 
     pool.run(async {
-      match await!(run_client()) {
+      match await!(run_client(server_got_connection_rx)) {
         Ok(_) => { },
         Err(err) => { panic!(format!("Test failed {}", err)); }
       };
@@ -298,7 +336,7 @@ fn can_connect_to_named_pipe() {
 #[test]
 fn can_send_data_over_named_pipe() {
 use std::thread;
-  use std::sync::mpsc::{channel, Sender};
+  use std::sync::mpsc::{channel, Receiver, Sender};
   use futures::executor::ThreadPoolBuilder;
   use simplelog::{Config, LevelFilter, TermLogger};
   use log::{info};
@@ -309,6 +347,7 @@ use std::thread;
 
   let (server_started_tx, server_started_rx) = channel();
   let (client_connected_tx, client_connected_rx) = channel();
+  let (server_read_tx, server_read_rx) = channel();
 
   let server_thread = thread::spawn(move || {
     let mut pool = ThreadPoolBuilder::new()
@@ -316,7 +355,7 @@ use std::thread;
       .create()
       .unwrap();
 
-    async fn run_server(start_tx: Sender<()>) -> std::io::Result<()> {
+    async fn run_server(start_tx: Sender<()>, server_read_tx: Sender<()>) -> std::io::Result<()> {
       let server = NamedPipeServer::new("cow")?;
       start_tx.send(()).unwrap();
 
@@ -324,7 +363,11 @@ use std::thread;
 
       let mut data: Vec<u8> = vec![0; 16];
 
-      let bytes_read = await!(connection.read(data.as_mut_slice()))?;
+      let mut bytes_read = 0;
+      
+      bytes_read = await!(connection.read(data.as_mut_slice()))?;
+
+      server_read_tx.send(()).unwrap();
 
       assert_eq!(bytes_read, 16);
 
@@ -338,7 +381,7 @@ use std::thread;
     }
 
     pool.run(async {
-      match await!(run_server(server_started_tx)) {
+      match await!(run_server(server_started_tx, server_read_tx)) {
         Ok(_) => { client_connected_tx.send(()).unwrap(); },
         Err(err) => { panic!(format!("Test failed {}", err)); }
       };
@@ -351,7 +394,7 @@ use std::thread;
       .create()
       .unwrap();
 
-    async fn run_client() -> std::io::Result<()> {
+    async fn run_client(server_read_rx: Receiver<()>) -> std::io::Result<()> {
       let client = NamedPipeClient::new("cow")?;
 
       let mut data: Vec<u8> = vec![];
@@ -364,12 +407,18 @@ use std::thread;
 
       await!(client.write(data.as_slice()))?;
 
+      // Wait for the server to read the data so our client doesn't die and break the pipe
+      debug!("Waiting for server to read data");
+      server_read_rx.recv().unwrap();
+
       Ok(())
     }
+
+    // Wait for the server to start.
     server_started_rx.recv().unwrap();
 
     pool.run(async {
-      match await!(run_client()) {
+      match await!(run_client(server_read_rx)) {
         Ok(_) => { },
         Err(err) => { panic!(format!("Test failed {}", err)); }
       };
