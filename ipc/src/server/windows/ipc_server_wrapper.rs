@@ -36,6 +36,7 @@ impl IpcServerWrapper {
   }*/
 }
 
+/*
 #[test]
 fn can_connect() {
   use futures::executor::{ThreadPoolBuilder};
@@ -81,4 +82,4 @@ fn can_connect() {
 
   server_done_rx.recv().unwrap();
   client_done_rx.recv().unwrap();
-}
+}*/

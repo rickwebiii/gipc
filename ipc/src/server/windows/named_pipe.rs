@@ -181,3 +181,60 @@ impl NamedPipeClient {
     Ok(PipeConnection::new(Handle::new(handle)))
   }
 }
+
+#[test]
+fn can_connect_to_named_pipe() {
+  use std::thread;
+  use std::sync::mpsc::{channel, Sender};
+  use futures::executor::ThreadPoolBuilder;
+
+
+  let (server_started_tx, server_started_rx) = channel();
+  let (client_connected_tx, client_connected_rx) = channel();
+
+  thread::spawn(move || {
+    let mut pool = ThreadPoolBuilder::new()
+      .pool_size(1)
+      .create()
+      .unwrap();
+
+    async fn run_server(start_tx: Sender<()>) -> std::io::Result<()> {
+      let server = NamedPipeServer::new("horse")?;
+      start_tx.send(()).unwrap();
+
+      let (_conection, _server) = await!(server.wait_for_connection())?;
+
+      Ok(())
+    }
+
+    pool.run(async {
+      match await!(run_server(server_started_tx)) {
+        Ok(_) => { client_connected_tx.send(()).unwrap(); },
+        Err(err) => { panic!(format!("Test failed {}", err)); }
+      };
+    });
+  });
+
+  thread::spawn(move || {
+    let mut pool = ThreadPoolBuilder::new()
+      .pool_size(1)
+      .create()
+      .unwrap();
+
+    async fn run_client() -> std::io::Result<()> {
+      let _client = NamedPipeClient::new("horse")?;
+
+      Ok(())
+    }
+    server_started_rx.recv().unwrap();
+
+    pool.run(async {
+      match await!(run_client()) {
+        Ok(_) => { },
+        Err(err) => { panic!(format!("Test failed {}", err)); }
+      };
+    });
+  });
+
+  client_connected_rx.recv().unwrap();
+}
