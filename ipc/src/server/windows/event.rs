@@ -1,3 +1,4 @@
+use log::{debug};
 use futures::{Future};
 use futures::task::{LocalWaker, Poll};
 use winapi::{
@@ -34,8 +35,9 @@ impl Event {
     pub fn new() -> io::Result<Event> {
         let handle = unsafe { CreateEventW(ptr::null_mut(), 1, 0, ptr::null()) };
         if handle != ptr::null_mut() {
+            debug!("Created event {:?}", handle);
             Ok(Event {
-                handle: Handle { value: handle },
+                handle: Handle::new(handle),
             })
         } else {
             Err(io::Error::last_os_error())
@@ -61,7 +63,11 @@ impl Event {
     }
 
     pub async fn await(self) -> io::Result<()> {
+        let handle = self.handle.value;
+
         await!(EventFuture::new(self.handle))?;
+
+        debug!("Event {:?} completed", handle);
 
         Ok(())
     }

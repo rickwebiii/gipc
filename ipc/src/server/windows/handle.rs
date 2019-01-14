@@ -1,3 +1,4 @@
+use log::{debug};
 use winapi::{
   um::{
     handleapi::{
@@ -16,6 +17,8 @@ pub struct Handle {
 
 impl Handle {
   pub fn new(handle: HANDLE) -> Handle {
+    debug!("Creating handle {:?}", handle);
+
     Handle {
       value: handle
     }
@@ -25,6 +28,8 @@ impl Handle {
 
 impl Drop for Handle {
     fn drop(&mut self) {
+         debug!("Dropping handle {:?}", self.value);
+
         let _ = unsafe { CloseHandle(self.value) };
     }
 }
