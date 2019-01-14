@@ -2,22 +2,18 @@
 //use futures::task::{LocalWaker, Poll};
 // use futures::io::{AsyncRead, AsyncWrite};
 
-use super::named_pipe::{NamedPipe};
+use super::named_pipe::{NamedPipeServer};
 
 use std::ffi::{OsString};
 
 pub struct IpcServerWrapper {
-  pipe: NamedPipe,
-  pipe_name: OsString,
+  pipe: NamedPipeServer,
 }
 
 impl IpcServerWrapper {
   pub fn new(name: &str) -> std::io::Result<IpcServerWrapper> {
-    let pipe_name = OsString::from(r"\\.\pipe\".to_owned() + name); 
-
     Ok(IpcServerWrapper {
-      pipe: NamedPipe::new(&pipe_name, true)?,
-      pipe_name: pipe_name,
+      pipe: NamedPipeServer::new(name)?,
     })
   }
   
