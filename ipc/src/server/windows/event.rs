@@ -1,29 +1,18 @@
-use log::{debug};
-use futures::{Future};
 use futures::task::{LocalWaker, Poll};
+use futures::Future;
+use log::debug;
 use winapi::{
-    shared::{
-        winerror::{
-            WAIT_TIMEOUT,
-        }
-    },
+    shared::winerror::WAIT_TIMEOUT,
     um::{
-        synchapi::{
-            CreateEventW,
-            ResetEvent,
-            SetEvent,
-            WaitForSingleObject,
-        },
-        winbase::{
-            WAIT_OBJECT_0,
-        }
-    }
+        synchapi::{CreateEventW, ResetEvent, SetEvent, WaitForSingleObject},
+        winbase::WAIT_OBJECT_0,
+    },
 };
 
-use super::handle::{Handle};
+use super::handle::Handle;
 
 use std::io;
-use std::pin::{Pin};
+use std::pin::Pin;
 use std::ptr;
 
 #[derive(Debug)]
@@ -79,9 +68,7 @@ struct EventFuture {
 
 impl EventFuture {
     fn new(handle: Handle) -> EventFuture {
-        EventFuture {
-            handle: handle
-        }
+        EventFuture { handle: handle }
     }
 }
 
@@ -92,14 +79,12 @@ impl Future for EventFuture {
         let result = unsafe { WaitForSingleObject(self.handle.value, 0) };
 
         match result {
-            WAIT_OBJECT_0 => { Poll::Ready(Ok(())) },
+            WAIT_OBJECT_0 => Poll::Ready(Ok(())),
             WAIT_TIMEOUT => {
                 lw.wake();
                 Poll::Pending
-            },
-            _ => {
-                Poll::Ready(Err(io::Error::last_os_error()))
             }
+            _ => Poll::Ready(Err(io::Error::last_os_error())),
         }
     }
 }

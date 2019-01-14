@@ -1,26 +1,14 @@
 use winapi::{
-  shared::{
-    minwindef::{
-      FALSE
-    },
-  },
-  um::{
-    ioapiset::{
-        GetOverlappedResult
-    },
-    minwinbase::{
-        OVERLAPPED
-    },
-  }
+    shared::minwindef::FALSE,
+    um::{ioapiset::GetOverlappedResult, minwinbase::OVERLAPPED},
 };
 
-use super::event::{Event};
-use super::handle::{Handle};
+use super::event::Event;
+use super::handle::Handle;
 
 use std::fmt;
 use std::io;
 use std::mem;
-
 
 pub struct Overlapped {
     ovl: OVERLAPPED,
@@ -72,14 +60,7 @@ impl Overlapped {
 
         let mut bytes_transferred: u32 = 0;
 
-        unsafe {
-            GetOverlappedResult(
-                handle.value,
-                &mut self.ovl,
-                &mut bytes_transferred,
-                FALSE
-            )
-        };
+        unsafe { GetOverlappedResult(handle.value, &mut self.ovl, &mut bytes_transferred, FALSE) };
 
         Ok(bytes_transferred)
     }

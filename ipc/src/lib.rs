@@ -3,5 +3,5 @@
 mod client;
 mod server;
 
-pub use self::client::{Client};
-pub use self::server::{Server};
+pub use self::client::Client;
+pub use self::server::Server;

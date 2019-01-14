@@ -1,12 +1,10 @@
 #[cfg(windows)]
-use super::windows::{IpcConnectionWrapper, IpcClientWrapper, IpcServerWrapper};
+use super::windows::{IpcClientWrapper, IpcConnectionWrapper, IpcServerWrapper};
 
 pub struct Server {
-  a: IpcConnectionWrapper,
-  b: IpcClientWrapper,
-  c: IpcServerWrapper
+    a: IpcConnectionWrapper,
+    b: IpcClientWrapper,
+    c: IpcServerWrapper,
 }
 
-impl Server {
-  
-}
+impl Server {}

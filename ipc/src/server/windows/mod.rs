@@ -1,11 +1,7 @@
+mod event;
+mod handle;
 mod ipc;
 mod named_pipe;
 mod overlapped;
-mod event;
-mod handle;
 
-pub use self::ipc::{
-  IpcConnectionWrapper,
-  IpcClientWrapper,
-  IpcServerWrapper,
-};
+pub use self::ipc::{IpcClientWrapper, IpcConnectionWrapper, IpcServerWrapper};

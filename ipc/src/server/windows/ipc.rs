@@ -4,53 +4,55 @@
 
 use super::named_pipe::{NamedPipeClient, NamedPipeConnection, NamedPipeServer};
 
-use std::ffi::{OsString};
+use std::ffi::OsString;
 
 pub struct IpcServerWrapper {
-  pipe: NamedPipeServer,
+    pipe: NamedPipeServer,
 }
 
 impl IpcServerWrapper {
-  pub fn new(name: &str) -> std::io::Result<IpcServerWrapper> {
-    Ok(IpcServerWrapper {
-      pipe: NamedPipeServer::new(name)?,
-    })
-  }
-
-  fn from(server: NamedPipeServer) -> IpcServerWrapper {
-    IpcServerWrapper {
-      pipe: server
+    pub fn new(name: &str) -> std::io::Result<IpcServerWrapper> {
+        Ok(IpcServerWrapper {
+            pipe: NamedPipeServer::new(name)?,
+        })
     }
-  }
 
-  pub async fn wait_for_client(self) -> std::io::Result<(IpcConnectionWrapper, IpcServerWrapper)> {
-    let (pipe_connection, server) = await!(self.pipe.wait_for_connection())?;
+    fn from(server: NamedPipeServer) -> IpcServerWrapper {
+        IpcServerWrapper { pipe: server }
+    }
 
-    Ok((IpcConnectionWrapper::new(pipe_connection), IpcServerWrapper::from(server)))
-  }
+    pub async fn wait_for_client(
+        self,
+    ) -> std::io::Result<(IpcConnectionWrapper, IpcServerWrapper)> {
+        let (pipe_connection, server) = await!(self.pipe.wait_for_connection())?;
+
+        Ok((
+            IpcConnectionWrapper::new(pipe_connection),
+            IpcServerWrapper::from(server),
+        ))
+    }
 }
 
 pub struct IpcConnectionWrapper {
-  pipe_connection: NamedPipeConnection
+    pipe_connection: NamedPipeConnection,
 }
 
 impl IpcConnectionWrapper {
-  pub fn new(pipe_connection: NamedPipeConnection) -> IpcConnectionWrapper {
-    IpcConnectionWrapper {
-      pipe_connection: pipe_connection
+    pub fn new(pipe_connection: NamedPipeConnection) -> IpcConnectionWrapper {
+        IpcConnectionWrapper {
+            pipe_connection: pipe_connection,
+        }
     }
-  }
 }
 
-pub struct IpcClientWrapper {
-}
+pub struct IpcClientWrapper {}
 
 impl IpcClientWrapper {
-  pub fn new(pipe_name: &str) -> std::io::Result<IpcConnectionWrapper> {
-    let pipe_connection = NamedPipeClient::new(pipe_name)?;
+    pub fn new(pipe_name: &str) -> std::io::Result<IpcConnectionWrapper> {
+        let pipe_connection = NamedPipeClient::new(pipe_name)?;
 
-    Ok(IpcConnectionWrapper {
-      pipe_connection: pipe_connection
-    })
-  }
+        Ok(IpcConnectionWrapper {
+            pipe_connection: pipe_connection,
+        })
+    }
 }
