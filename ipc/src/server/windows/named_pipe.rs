@@ -1,5 +1,14 @@
 use log::{debug};
 use winapi::{
+  shared::{
+    minwindef::{
+      TRUE
+    },
+    winerror::{
+      ERROR_IO_PENDING,
+      ERROR_PIPE_CONNECTED,
+    }
+  },
   um::{
     fileapi::{
       CreateFileW,
@@ -19,6 +28,7 @@ use winapi::{
       FILE_FLAG_OVERLAPPED,
       PIPE_ACCESS_DUPLEX,
       PIPE_READMODE_BYTE,
+      PIPE_REJECT_REMOTE_CLIENTS,
       PIPE_TYPE_BYTE,
       PIPE_UNLIMITED_INSTANCES,
       PIPE_WAIT
@@ -67,7 +77,7 @@ impl NamedPipeServer {
       CreateNamedPipeW(
         pipe_name_bytes.as_ptr(),
         PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | first_instance,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE| PIPE_WAIT,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE| PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
         PIPE_UNLIMITED_INSTANCES,
         1024 * 1024,
         1024 * 1024,
@@ -91,20 +101,42 @@ impl NamedPipeServer {
   pub async fn wait_for_connection(self) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
     let mut overlapped = Overlapped::new()?;
 
+    let new_pipe = NamedPipeServer::create(&self.name, false)?;
+
     debug!("Waiting for connection on named pipe {:?}", self.handle.value);
 
-    unsafe {
-      ConnectNamedPipe(self.handle.value, overlapped.get_mut());
+    let success = unsafe {
+      ConnectNamedPipe(self.handle.value, overlapped.get_mut())
     };
+
+    // If the client connected between us creating the pipe and calling ConnectNamedPipe,
+    // the ConnectNamedPipe returns false and last_os_error() returns ERROR_PIPE_CONNECTED
+    if success != TRUE {
+      let err = std::io::Error::last_os_error();
+
+      match err.raw_os_error().unwrap() as u32 {
+        ERROR_IO_PENDING => { 
+          debug!("Connection on named pipe {:?} is pending.", self.handle.value); 
+        },
+        ERROR_PIPE_CONNECTED => { 
+          return Ok((NamedPipeConnection::new(self.handle), new_pipe))
+        },
+        _ => { return Err(err); }
+      }
+
+    }
 
     await!(overlapped.await())?; 
 
     debug!("Client connected on named pipe {:?}", self.handle.value);
 
     let connection = NamedPipeConnection::new(self.handle);
-    let new_pipe = NamedPipeServer::create(&self.name, false)?;
 
     Ok((connection, new_pipe))
+  }
+
+  pub fn close() {
+    
   }
 }
 
@@ -197,7 +229,6 @@ impl NamedPipeClient {
   }
 }
 
-/*
 #[test]
 fn can_connect_to_named_pipe() {
   use std::thread;
@@ -255,6 +286,7 @@ fn can_connect_to_named_pipe() {
         Err(err) => { panic!(format!("Test failed {}", err)); }
       };
     });
+
   });
 
   server_thread.join().unwrap();
@@ -262,7 +294,6 @@ fn can_connect_to_named_pipe() {
 
   client_connected_rx.recv().unwrap();
 }
-*/ 
 
 #[test]
 fn can_send_data_over_named_pipe() {
@@ -272,7 +303,7 @@ use std::thread;
   use simplelog::{Config, LevelFilter, TermLogger};
   use log::{info};
 
-  TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
+  //TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
 
   info!("Starting test can_send_data_over_named_pipe");
 
