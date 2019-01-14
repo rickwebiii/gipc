@@ -5,12 +5,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "(Windows) Launch",
+      "name": "(Windows) Debug ipc tests",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "enter program name, for example ${workspaceFolder}/a.exe",
-      "args": [],
-      "stopAtEntry": false,
+      "program": "${workspaceFolder}/target/debug/ipc-c5077fbe3b61fd8c.exe",
+      "args": ["--skip", "can_connect"],
+      "stopAtEntry": true,
       "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": true,

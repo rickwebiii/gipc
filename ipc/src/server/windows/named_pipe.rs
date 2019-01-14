@@ -179,8 +179,6 @@ impl NamedPipeConnection {
       )
     };
 
-    debug!("called");
-
     if result != TRUE {
       let err = std::io::Error::last_os_error();
 
@@ -261,99 +259,111 @@ impl NamedPipeClient {
   }
 }
 
-#[test]
-fn can_connect_to_named_pipe() {
+#[cfg(test)]
+mod tests {
+  use super::{
+    NamedPipeClient,
+    NamedPipeServer
+  };
+
+  use futures::executor::ThreadPoolBuilder;
+  use simplelog::{Config, LevelFilter, TermLogger};
+  use log::{debug, info};
+
+  use std::mem;
+  use std::sync::Once;
   use std::thread;
   use std::sync::mpsc::{channel, Receiver, Sender};
-  use futures::executor::ThreadPoolBuilder;
-  use simplelog::{Config, LevelFilter, TermLogger};
-  use log::{info};
+    
+  static START: Once = Once::new();
 
-  TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
-
-  info!("Starting test can_connect_to_named_pipe");
-
-  let (server_started_tx, server_started_rx) = channel();
-  let (client_connected_tx, client_connected_rx) = channel();
-  let (server_got_connection_tx, server_got_connection_rx) = channel();
-
-  let server_thread = thread::spawn(move || {
-    let mut pool = ThreadPoolBuilder::new()
-      .pool_size(1)
-      .create()
-      .unwrap();
-
-    async fn run_server(start_tx: Sender<()>, connect_tx: Sender<()>) -> std::io::Result<()> {
-      let server = NamedPipeServer::new("horse")?;
-      start_tx.send(()).unwrap();
-
-      let (_conection, _server) = await!(server.wait_for_connection())?;
-
-      connect_tx.send(()).unwrap();
-
-      Ok(())
-    }
-
-    pool.run(async {
-      match await!(run_server(server_started_tx, server_got_connection_tx)) {
-        Ok(_) => { client_connected_tx.send(()).unwrap(); },
-        Err(err) => { panic!(format!("Test failed {}", err)); }
-      };
+  fn install_logger() {
+    START.call_once(|| {
+      TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
     });
-  });
+  }
 
-  let client_thread = thread::spawn(move || {
-    let mut pool = ThreadPoolBuilder::new()
-      .pool_size(1)
-      .create()
-      .unwrap();
+  #[test]
+  fn can_connect_to_named_pipe() {
+    install_logger();
 
-    async fn run_client(connect_rx: Receiver<()>) -> std::io::Result<()> {
-      let _client = NamedPipeClient::new("horse")?;
+    info!("Starting test can_connect_to_named_pipe");
 
-      connect_rx.recv().unwrap();
+    let (server_started_tx, server_started_rx) = channel();
+    let (client_connected_tx, client_connected_rx) = channel();
+    let (server_got_connection_tx, server_got_connection_rx) = channel();
 
-      Ok(())
-    }
+    let server_thread = thread::spawn(move || {
+      let mut pool = ThreadPoolBuilder::new()
+        .pool_size(1)
+        .create()
+        .unwrap();
 
-    server_started_rx.recv().unwrap();
+      async fn run_server(start_tx: Sender<()>, connect_tx: Sender<()>) -> std::io::Result<()> {
+        let server = NamedPipeServer::new("horse")?;
+        start_tx.send(()).unwrap();
 
-    pool.run(async {
-      match await!(run_client(server_got_connection_rx)) {
-        Ok(_) => { },
-        Err(err) => { panic!(format!("Test failed {}", err)); }
-      };
+        let (_conection, _server) = await!(server.wait_for_connection())?;
+
+        connect_tx.send(()).unwrap();
+
+        Ok(())
+      }
+
+      pool.run(async {
+        match await!(run_server(server_started_tx, server_got_connection_tx)) {
+          Ok(_) => { client_connected_tx.send(()).unwrap(); },
+          Err(err) => { panic!(format!("Test failed {}", err)); }
+        };
+      });
     });
 
-  });
+    let client_thread = thread::spawn(move || {
+      let mut pool = ThreadPoolBuilder::new()
+        .pool_size(1)
+        .create()
+        .unwrap();
 
-  server_thread.join().unwrap();
-  client_thread.join().unwrap();
+      async fn run_client(connect_rx: Receiver<()>) -> std::io::Result<()> {
+        let _client = NamedPipeClient::new("horse")?;
 
-  client_connected_rx.recv().unwrap();
-}
+        connect_rx.recv().unwrap();
 
-#[test]
-fn can_send_data_over_named_pipe() {
-use std::thread;
-  use std::sync::mpsc::{channel, Receiver, Sender};
-  use futures::executor::ThreadPoolBuilder;
-  use simplelog::{Config, LevelFilter, TermLogger};
-  use log::{info};
+        Ok(())
+      }
 
-  //TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
+      server_started_rx.recv().unwrap();
 
-  info!("Starting test can_send_data_over_named_pipe");
+      pool.run(async {
+        match await!(run_client(server_got_connection_rx)) {
+          Ok(_) => { },
+          Err(err) => { panic!(format!("Test failed {}", err)); }
+        };
+      });
 
-  let (server_started_tx, server_started_rx) = channel();
-  let (client_connected_tx, client_connected_rx) = channel();
-  let (server_read_tx, server_read_rx) = channel();
+    });
 
-  let server_thread = thread::spawn(move || {
-    let mut pool = ThreadPoolBuilder::new()
-      .pool_size(1)
-      .create()
-      .unwrap();
+    server_thread.join().unwrap();
+    client_thread.join().unwrap();
+
+    client_connected_rx.recv().unwrap();
+  }
+
+  #[test]
+  fn can_send_data_over_named_pipe() {
+    install_logger();
+
+    info!("Starting test can_send_data_over_named_pipe");
+
+    let (server_started_tx, server_started_rx) = channel();
+    let (client_connected_tx, client_connected_rx) = channel();
+    let (server_read_tx, server_read_rx) = channel();
+
+    let server_thread = thread::spawn(move || {
+      let mut pool = ThreadPoolBuilder::new()
+        .pool_size(1)
+        .create()
+        .unwrap();
 
     async fn run_server(start_tx: Sender<()>, server_read_tx: Sender<()>) -> std::io::Result<()> {
       let server = NamedPipeServer::new("cow")?;
@@ -405,11 +415,13 @@ use std::thread;
 
       debug!("{:?}", data);
 
-      await!(client.write(data.as_slice()))?;
+      //await!(client.write(data.as_slice()))?;
 
       // Wait for the server to read the data so our client doesn't die and break the pipe
       debug!("Waiting for server to read data");
       server_read_rx.recv().unwrap();
+
+      mem::forget(client);
 
       Ok(())
     }
@@ -429,4 +441,5 @@ use std::thread;
   client_thread.join().unwrap();
 
   client_connected_rx.recv().unwrap();
+}
 }
