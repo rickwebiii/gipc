@@ -314,7 +314,7 @@ impl NamedPipeClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{NamedPipeClient, NamedPipeServer};
+    use super::{Handle, NamedPipeClient, NamedPipeServer};
 
     use futures::executor::ThreadPoolBuilder;
     use log::{debug, info};
@@ -331,6 +331,18 @@ mod tests {
         START.call_once(|| {
             TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
         });
+    }
+
+    /// Asserts there are no open Win32 HANDLEs. This assertion relies on a global atomic,
+    /// which probably won't be zero if tests are running in parallel. To actually test for,
+    /// leaks, uncomment the contained assertion and run cargo test -- --test-threads=1
+    #[cfg(debug_assertions)]
+    fn assert_no_handles() {
+        // assert_eq!(Handle::num_open_handles(), 0);
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn assert_no_handles() {
     }
 
     #[test]
@@ -403,6 +415,8 @@ mod tests {
         client_thread.join().unwrap();
 
         client_connected_rx.recv().unwrap();
+
+        assert_no_handles();
     }
 
     #[test]
@@ -413,7 +427,9 @@ mod tests {
 
         let (server_started_tx, server_started_rx) = channel();
         let (client_connected_tx, client_connected_rx) = channel();
-        let (server_read_tx, server_read_rx) = channel();
+        // A side-channel so the server knows the client has received its data
+        // and the thread can die.
+        let (pong_tx, pong_rx) = channel();
 
         let server_thread = thread::Builder::new()
             .name("server".to_owned())
@@ -423,7 +439,7 @@ mod tests {
 
             async fn run_server(
                 start_tx: Sender<()>,
-                server_read_tx: Sender<()>,
+                pong_rx: Receiver<()>,
             ) -> std::io::Result<()> {
                 let server = NamedPipeServer::new("cow")?;
                 start_tx.send(()).unwrap();
@@ -432,26 +448,29 @@ mod tests {
 
                 let mut data: Vec<u8> = vec![0; 16];
 
-                let mut bytes_read = 0;
+                info!("Server receiving");
 
-                bytes_read = await!(connection.read(data.as_mut_slice()))?;
-
-                server_read_tx.send(()).unwrap();
+                let bytes_read = await!(connection.read(data.as_mut_slice()))?;
 
                 assert_eq!(bytes_read, 16);
 
-                debug!("{:?}", data);
-
                 for i in 0..16 {
                     assert_eq!(i as u8, data[i]);
+                    data[i] *= 2;
                 }
+
+                info!("Server sending");
+
+                let bytes_written = await!(connection.write(data.as_slice()))?;
+
+                pong_rx.recv().unwrap();
 
                 Ok(())
             }
 
             pool.run(
                 async {
-                    match await!(run_server(server_started_tx, server_read_tx)) {
+                    match await!(run_server(server_started_tx, pong_rx)) {
                         Ok(_) => {
                             client_connected_tx.send(()).unwrap();
                         }
@@ -469,7 +488,7 @@ mod tests {
         {
             let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
 
-            async fn run_client(server_read_rx: Receiver<()>) -> std::io::Result<()> {
+            async fn run_client(pong_tx: Sender<()>) -> std::io::Result<()> {
                 let client = NamedPipeClient::new("cow")?;
 
                 let mut data: Vec<u8> = vec![];
@@ -478,15 +497,17 @@ mod tests {
                     data.push(i as u8);
                 }
 
-                debug!("{:?}", data);
-
+                info!("Client sending");
                 await!(client.write(data.as_slice()))?;
 
-                // Wait for the server to read the data so our client doesn't die and break the pipe
-                debug!("Waiting for server to read data");
-                server_read_rx.recv().unwrap();
+                info!("Client receiving");
+                await!(client.read(data.as_mut_slice()))?;
 
-                mem::forget(client);
+                for i in 0..16 {
+                    assert_eq!(data[i], 2 * i as u8);
+                }
+
+                pong_tx.send(()).unwrap();
 
                 Ok(())
             }
@@ -496,7 +517,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_client(server_read_rx)) {
+                    match await!(run_client(pong_tx)) {
                         Ok(_) => {}
                         Err(err) => {
                             panic!(format!("Test failed {}", err));
@@ -510,5 +531,7 @@ mod tests {
         client_thread.join().unwrap();
 
         client_connected_rx.recv().unwrap();
+
+        assert_no_handles();
     }
 }
