@@ -209,7 +209,7 @@ impl NamedPipeConnection {
     }
 
     #[cfg(debug_assertions)]
-    pub async fn write_<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
+    pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
         debug!(
             "Connection: Attempting write of {} bytes on named pipe {}",
             data.len(),
@@ -227,7 +227,7 @@ impl NamedPipeConnection {
     }
 
     #[cfg(not(debug_assertions))]
-    pub async fn write_<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
+    pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
         await!(self.write_internal(data))
     }
 
@@ -480,7 +480,7 @@ mod tests {
 
                 debug!("{:?}", data);
 
-                //await!(client.write(data.as_slice()))?;
+                await!(client.write(data.as_slice()))?;
 
                 // Wait for the server to read the data so our client doesn't die and break the pipe
                 debug!("Waiting for server to read data");

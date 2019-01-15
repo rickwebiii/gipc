@@ -1,5 +1,6 @@
+use log::{debug};
 use winapi::{
-    shared::minwindef::FALSE,
+    shared::minwindef::{FALSE, TRUE},
     um::{ioapiset::GetOverlappedResult, minwinbase::OVERLAPPED},
 };
 
@@ -60,7 +61,9 @@ impl Overlapped {
 
         let mut bytes_transferred: u32 = 0;
 
-        unsafe { GetOverlappedResult(handle.value, &mut self.ovl, &mut bytes_transferred, FALSE) };
+        let result = unsafe { GetOverlappedResult(handle.value, &mut self.ovl, &mut bytes_transferred, FALSE) };
+
+        debug!("{}", result);
 
         Ok(bytes_transferred)
     }
