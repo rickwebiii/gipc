@@ -38,12 +38,23 @@ fn make_pipe_name(osstr: &OsStr) -> Vec<u16> {
 }
 
 impl NamedPipeServer {
+    #[cfg(debug_assertions)]
+    pub fn new(name: &str) -> std::io::Result<NamedPipeServer> {
+        debug!("NamedPipeServer: Creating named pipe {}...", name);
+
+        let pipe = NamedPipeServer::create(&OsString::from(PIPE_PREFIX.to_owned() + name), true)?;
+
+        debug!("NamedPipeServer: Created named pipe {} with id {}", name, pipe.handle.id());
+
+        Ok(pipe)
+    }
+
+    #[cfg(not(debug_assertions))]
     pub fn new(name: &str) -> std::io::Result<NamedPipeServer> {
         NamedPipeServer::create(&OsString::from(PIPE_PREFIX.to_owned() + name), true)
     }
 
     fn create(name: &OsStr, first: bool) -> std::io::Result<NamedPipeServer> {
-        debug!("Creating named pipe {}...", name.to_string_lossy());
         let first_instance = if first {
             FILE_FLAG_FIRST_PIPE_INSTANCE
         } else {
@@ -69,12 +80,6 @@ impl NamedPipeServer {
             return Err(std::io::Error::last_os_error());
         }
 
-        debug!(
-            "Named pipe {} has handle {:?}",
-            name.to_string_lossy(),
-            handle
-        );
-
         Ok(NamedPipeServer {
             handle: Handle::new(handle),
             name: pipe_name,
@@ -84,14 +89,26 @@ impl NamedPipeServer {
     pub async fn wait_for_connection(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
+        let server_id = self.handle.id();
+
+        debug!(
+            "NamedPipeServer: waiting for connection on {}",
+            server_id
+        );
+
+        let (connection, server) = await!(self.wait_for_connection_internal())?;
+
+        debug!("NamedPipeServer: client connected on {}. Connection id {}.", server_id, connection.id());
+
+        Ok((connection, server))
+    }
+
+    pub async fn wait_for_connection_internal(
+        self,
+    ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
         let mut overlapped = Overlapped::new()?;
 
         let new_pipe = NamedPipeServer::create(&self.name, false)?;
-
-        debug!(
-            "Waiting for connection on named pipe {:?}",
-            self.handle.value
-        );
 
         let success = unsafe { ConnectNamedPipe(self.handle.value, overlapped.get_mut()) };
 
@@ -101,14 +118,8 @@ impl NamedPipeServer {
             let err = std::io::Error::last_os_error();
 
             match err.raw_os_error().unwrap() as u32 {
-                ERROR_IO_PENDING => {
-                    debug!(
-                        "Connection on named pipe {:?} is pending.",
-                        self.handle.value
-                    );
-                }
+                ERROR_IO_PENDING => { }
                 ERROR_PIPE_CONNECTED => {
-                    debug!("Client connected on named pipe {:?}", self.handle.value);
                     return Ok((NamedPipeConnection::new(self.handle), new_pipe));
                 }
                 _ => {
@@ -119,14 +130,10 @@ impl NamedPipeServer {
 
         await!(overlapped.await())?;
 
-        debug!("Client connected on named pipe {:?}", self.handle.value);
-
         let connection = NamedPipeConnection::new(self.handle);
 
         Ok((connection, new_pipe))
     }
-
-    pub fn close() {}
 }
 
 pub struct NamedPipeConnection {
@@ -138,27 +145,41 @@ impl NamedPipeConnection {
         NamedPipeConnection { handle: handle }
     }
 
+    #[cfg(debug_assertions)]
+    pub async fn read<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
+        let mut bytes_read: u32 = 0;
+
+        debug!(
+            "Connection: attempt read {} bytes on pipe {}",
+            data.len(),
+            self.id()
+        );
+
+        while bytes_read == 0 {
+            bytes_read = await!(self.read_internal(data))?;
+        }
+
+        debug!(
+            "Connection: read {} bytes on pipe {}",
+            bytes_read, self.id()
+        );
+
+        Ok(bytes_read)
+    }
+
+    #[cfg(not(debug_assertions))]
     pub async fn read<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
         let mut bytes_read: u32 = 0;
 
         while bytes_read == 0 {
             bytes_read = await!(self.read_internal(data))?;
-            debug!("Try again");
         }
-
-        debug!("Got data");
 
         Ok(bytes_read)
     }
 
     pub async fn read_internal<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
         let mut overlapped = Overlapped::new()?;
-
-        debug!(
-            "Reading up to {} bytes on named pipe {:?}",
-            data.len(),
-            self.handle.value
-        );
 
         let result = unsafe {
             ReadFile(
@@ -174,7 +195,8 @@ impl NamedPipeConnection {
             let err = std::io::Error::last_os_error();
 
             match err.raw_os_error().unwrap() as u32 {
-                ERROR_IO_PENDING => {} // Expected, as we're not blocking on I/O
+                ERROR_IO_PENDING => {}, // Expected, as we're not blocking on I/O
+                ERROR_NO_DATA => { return Ok(0); },
                 _ => {
                     return Err(err);
                 }
@@ -183,23 +205,35 @@ impl NamedPipeConnection {
 
         let bytes_read: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;
 
-        debug!(
-            "Read {} bytes on named pipe {:?}",
-            bytes_read, self.handle.value
-        );
-
         Ok(bytes_read)
     }
 
-    pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
-        let mut overlapped = Overlapped::new()?;
-        let mut bytes_written: u32 = 0;
+    #[cfg(debug_assertions)]
+    pub async fn write_<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
+        debug!(
+            "Connection: Attempting write of {} bytes on named pipe {}",
+            data.len(),
+            self.handle.id()
+        );
+
+        let bytes_written = await!(self.write_internal(data))?;
 
         debug!(
-            "Writing up to {} bytes on named pipe {:?}",
-            data.len(),
-            self.handle.value
+            "Connection: Wrote {} bytes on pipe {}",
+            bytes_written, self.handle.id()
         );
+
+        Ok(bytes_written)
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub async fn write_<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
+        await!(self.write_internal(data))
+    }
+
+    pub async fn write_internal<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
+        let mut overlapped = Overlapped::new()?;
+        let mut bytes_written: u32 = 0;
 
         let result = unsafe {
             WriteFile(
@@ -224,22 +258,39 @@ impl NamedPipeConnection {
 
         let bytes_written: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;
 
-        debug!(
-            "Wrote {} bytes on named pipe {:?}",
-            bytes_written, self.handle.value
-        );
-
         Ok(bytes_written)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn id(&self) -> usize {
+        self.handle.id()
     }
 }
 
 pub struct NamedPipeClient {}
 
 impl NamedPipeClient {
+    #[cfg(debug_assertions)]
     pub fn new(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
-        let pipe_name_bytes = make_pipe_name(&OsString::from(PIPE_PREFIX.to_owned() + pipe_name));
+        debug!("Client: creating name: {}", pipe_name);
 
-        debug!("Creating named pipe client for pipe named {}", pipe_name);
+        let client = NamedPipeClient::new_internal(pipe_name)?;
+
+        debug!(
+            "Client: created name: {} id: {}",
+            pipe_name, client.handle.id()
+        );
+
+        Ok(client)
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn new(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
+        NamedPipeClient::new_internal(pipe_name)
+    }
+
+    fn new_internal(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
+        let pipe_name_bytes = make_pipe_name(&OsString::from(PIPE_PREFIX.to_owned() + pipe_name));
 
         let handle = unsafe {
             CreateFileW(
@@ -256,11 +307,6 @@ impl NamedPipeClient {
         if handle == INVALID_HANDLE_VALUE {
             return Err(std::io::Error::last_os_error());
         }
-
-        debug!(
-            "Created named pipe client {} with handle {:?}",
-            pipe_name, handle
-        );
 
         Ok(NamedPipeConnection::new(Handle::new(handle)))
     }
@@ -369,7 +415,10 @@ mod tests {
         let (client_connected_tx, client_connected_rx) = channel();
         let (server_read_tx, server_read_rx) = channel();
 
-        let server_thread = thread::spawn(move || {
+        let server_thread = thread::Builder::new()
+            .name("server".to_owned())
+            .spawn(move || 
+        {
             let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
 
             async fn run_server(
@@ -412,9 +461,12 @@ mod tests {
                     };
                 },
             );
-        });
+        }).unwrap();
 
-        let client_thread = thread::spawn(move || {
+        let client_thread = thread::Builder::new()
+            .name("client".to_owned())
+            .spawn(move || 
+        {
             let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
 
             async fn run_client(server_read_rx: Receiver<()>) -> std::io::Result<()> {
@@ -452,7 +504,7 @@ mod tests {
                     };
                 },
             );
-        });
+        }).unwrap();
 
         server_thread.join().unwrap();
         client_thread.join().unwrap();

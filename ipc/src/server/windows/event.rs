@@ -21,10 +21,23 @@ pub struct Event {
 }
 
 impl Event {
+    #[cfg(debug_assertions)]
     pub fn new() -> io::Result<Event> {
+        let event = Event::new_internal()?;
+
+        debug!("Event: created {}", event.handle.id());
+
+        Ok(event)
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn new() -> io::Result<Event> {
+        Event::new_internal()
+    }
+
+    fn new_internal() -> io::Result<Event> {
         let handle = unsafe { CreateEventW(ptr::null_mut(), 1, 0, ptr::null()) };
         if handle != ptr::null_mut() {
-            debug!("Created event {:?}", handle);
             Ok(Event {
                 handle: Handle::new(handle),
             })
@@ -51,12 +64,22 @@ impl Event {
         }
     }
 
+    #[cfg(debug_assertions)]
     pub async fn await(self) -> io::Result<()> {
-        let handle = self.handle.value;
+        let id = self.handle.id();
+
+        debug!("Event: awaiting {:?}", id);
 
         await!(EventFuture::new(self.handle))?;
 
-        debug!("Event {:?} completed", handle);
+        debug!("Event: {:?} completed", id);
+
+        Ok(())
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub async fn await(self) -> io::Result<()> {
+        await!(EventFuture::new(self.handle))?;
 
         Ok(())
     }
