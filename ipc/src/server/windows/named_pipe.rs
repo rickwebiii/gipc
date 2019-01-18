@@ -23,11 +23,14 @@ use super::overlapped::Overlapped;
 
 use std::ffi::{c_void, OsStr, OsString};
 use std::os::windows::ffi::OsStrExt;
+use std::mem;
 use std::ptr;
+use std::sync::{Arc};
 
 pub struct NamedPipeServer {
     handle: Handle,
     name: OsString,
+    completion_port: Arc<CompletionPort>,
 }
 
 const PIPE_PREFIX: &str = r"\\.\pipe\";
@@ -81,9 +84,14 @@ impl NamedPipeServer {
             return Err(std::io::Error::last_os_error());
         }
 
+        let handle = Handle::new(handle);
+
+        let completion_port = CompletionPort::new(&handle)?;
+
         Ok(NamedPipeServer {
-            handle: Handle::new(handle),
+            handle: handle,
             name: pipe_name,
+            completion_port: Arc::new(completion_port)
         })
     }
 
@@ -107,11 +115,11 @@ impl NamedPipeServer {
     pub async fn wait_for_connection_internal(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
-        let mut overlapped = Overlapped::new()?;
+        let (mut overlapped, overlapped_awaiter) = Overlapped::new(self.completion_port.clone())?;
 
         let new_pipe = NamedPipeServer::create(&self.name, false)?;
 
-        let success = unsafe { ConnectNamedPipe(self.handle.value, overlapped.get_mut()) };
+        let success = unsafe { ConnectNamedPipe(self.handle.value, mem::transmute(Arc::into_raw(overlapped))) };
 
         // If the client connected between us creating the pipe and calling ConnectNamedPipe,
         // the ConnectNamedPipe returns false and last_os_error() returns ERROR_PIPE_CONNECTED
@@ -121,7 +129,7 @@ impl NamedPipeServer {
             match err.raw_os_error().unwrap() as u32 {
                 ERROR_IO_PENDING => { }
                 ERROR_PIPE_CONNECTED => {
-                    return Ok((NamedPipeConnection::new(self.handle), new_pipe));
+                    return Ok((NamedPipeConnection::new(self.handle, self.completion_port.clone()), new_pipe));
                 }
                 _ => {
                     return Err(err);
@@ -129,9 +137,9 @@ impl NamedPipeServer {
             }
         };
 
-        await!(overlapped.await_bytes_transferred(&self.handle))?;
+        await!(overlapped_awaiter.await())?;
 
-        let connection = NamedPipeConnection::new(self.handle);
+        let connection = NamedPipeConnection::new(self.handle, self.completion_port.clone());
 
         Ok((connection, new_pipe))
     }
@@ -139,11 +147,12 @@ impl NamedPipeServer {
 
 pub struct NamedPipeConnection {
     handle: Handle,
+    completion_port: Arc<CompletionPort>,
 }
 
 impl NamedPipeConnection {
-    pub fn new(handle: Handle) -> NamedPipeConnection {
-        NamedPipeConnection { handle: handle }
+    pub fn new(handle: Handle, completion_port: Arc<CompletionPort>) -> NamedPipeConnection {
+        NamedPipeConnection { handle: handle, completion_port: completion_port }
     }
 
     #[cfg(debug_assertions)]
@@ -180,7 +189,7 @@ impl NamedPipeConnection {
     }
 
     pub async fn read_internal<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
-        let mut overlapped = Overlapped::new()?;
+        let (mut overlapped, overlapped_awaiter) = Overlapped::new(self.completion_port.clone())?;
         let mut bytes_read: u32 = 0;
 
         let result = unsafe {
@@ -189,7 +198,7 @@ impl NamedPipeConnection {
                 data.as_mut_ptr() as *mut c_void,
                 data.len() as u32,
                 &mut bytes_read,
-                overlapped.get_mut(),
+                mem::transmute(Arc::into_raw(overlapped)),
             )
         };
 
@@ -207,7 +216,7 @@ impl NamedPipeConnection {
             return Ok(bytes_read);
         }
 
-        let bytes_read: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;
+        let bytes_read: u32 = await!(overlapped_awaiter.await())?;
 
         Ok(bytes_read)
     }
@@ -236,7 +245,7 @@ impl NamedPipeConnection {
     }
 
     pub async fn write_internal<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
-        let mut overlapped = Overlapped::new()?;
+        let (mut overlapped, overlapped_awaiter) = Overlapped::new(self.completion_port.clone())?;
         let mut bytes_written: u32 = 0;
 
         let result = unsafe {
@@ -245,7 +254,7 @@ impl NamedPipeConnection {
                 data.as_ptr() as *const c_void,
                 data.len() as u32,
                 &mut bytes_written,
-                overlapped.get_mut(),
+                mem::transmute(Arc::into_raw(overlapped)),
             )
         };
 
@@ -262,7 +271,7 @@ impl NamedPipeConnection {
             return Ok(bytes_written);
         }
 
-        let bytes_written: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;
+        let bytes_written: u32 = await!(overlapped_awaiter.await())?;
 
         Ok(bytes_written)
     }
@@ -273,21 +282,22 @@ impl NamedPipeConnection {
     }
 }
 
-pub struct NamedPipeClient {}
+pub struct NamedPipeClient {
+}
 
 impl NamedPipeClient {
     #[cfg(debug_assertions)]
     pub fn new(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
         debug!("Client: creating name: {}", pipe_name);
 
-        let client = NamedPipeClient::new_internal(pipe_name)?;
+        let connection = NamedPipeClient::new_internal(pipe_name)?;
 
         debug!(
             "Client: created name: {} id: {}",
-            pipe_name, client.handle.id()
+            pipe_name, connection.handle.id()
         );
 
-        Ok(client)
+        Ok(connection)
     }
 
     #[cfg(not(debug_assertions))]
@@ -314,7 +324,11 @@ impl NamedPipeClient {
             return Err(std::io::Error::last_os_error());
         }
 
-        Ok(NamedPipeConnection::new(Handle::new(handle)))
+        let handle = Handle::new(handle);
+
+        let completion_port = Arc::new(CompletionPort::new(&handle)?);
+
+        Ok(NamedPipeConnection::new(handle, completion_port))
     }
 }
 

@@ -31,7 +31,7 @@ pub struct CompletionPort {
 }
 
 impl CompletionPort {
-    pub fn create(file_handle: Handle) -> std::io::Result<CompletionPort> {
+    pub fn new(file_handle: &Handle) -> std::io::Result<CompletionPort> {
         let iocp_handle = unsafe {
             CreateIoCompletionPort(
                 file_handle.value,
@@ -51,9 +51,9 @@ impl CompletionPort {
     }
 
     pub fn get_completion_status(&self) -> Arc<Overlapped> {
-        let bytes_transferred: u32 = 0;
-        let dummy: usize = 0;
-        let mut overlapped: *mut OVERLAPPED;
+        let mut bytes_transferred: u32 = 0;
+        let mut dummy: usize = 0;
+        let mut overlapped: *mut OVERLAPPED = ptr::null_mut();
 
         let result = unsafe {
             GetQueuedCompletionStatus(

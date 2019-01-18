@@ -60,7 +60,7 @@ impl Overlapped {
 
         let overlapped_awaiter = OverlappedAwaiter {
             event: event,
-            waker: waker.clone(),
+            waker: overlapped_wrapper.waker.clone(),
             completion_port: completion_port,
             overlapped: overlapped_wrapper.clone()
         };
@@ -72,8 +72,8 @@ impl Overlapped {
         self.completion_info = Some(info);
     }
 
-    pub fn get_completion_info(&self) -> Option<OverlappedCompletionInfo> {
-        self.completion_info
+    pub fn get_completion_info<'a>(&'a self) -> &'a Option<OverlappedCompletionInfo> {
+        &self.completion_info
     }
 }
 
@@ -113,7 +113,7 @@ impl Future for OverlappedFuture {
     fn poll(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Self::Output> {
         self.overlapped.waker.register(lw);
 
-        match self.overlapped.completion_info {
+        match &self.overlapped.completion_info {
             Some(info) => {
                 if info.error != ERROR_SUCCESS as i32 {
                     Poll::Ready(Err(std::io::Error::from_raw_os_error(info.error)))
