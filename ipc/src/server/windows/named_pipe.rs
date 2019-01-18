@@ -2,7 +2,7 @@ use log::debug;
 use winapi::{
     shared::{
         minwindef::TRUE,
-        winerror::{ERROR_IO_PENDING, ERROR_PIPE_CONNECTED},
+        winerror::{ERROR_IO_PENDING, ERROR_NO_DATA, ERROR_PIPE_CONNECTED},
     },
     um::{
         fileapi::{CreateFileW, ReadFile, WriteFile, OPEN_EXISTING},
@@ -17,6 +17,7 @@ use winapi::{
     },
 };
 
+use super::completion_port::{CompletionPort};
 use super::handle::Handle;
 use super::overlapped::Overlapped;
 
@@ -69,8 +70,8 @@ impl NamedPipeServer {
                 PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | first_instance,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 PIPE_UNLIMITED_INSTANCES,
-                1024 * 1024,
-                1024 * 1024,
+                0,
+                0,
                 0,
                 ptr::null_mut(),
             )
@@ -128,7 +129,7 @@ impl NamedPipeServer {
             }
         };
 
-        await!(overlapped.await())?;
+        await!(overlapped.await_bytes_transferred(&self.handle))?;
 
         let connection = NamedPipeConnection::new(self.handle);
 
@@ -180,13 +181,14 @@ impl NamedPipeConnection {
 
     pub async fn read_internal<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
         let mut overlapped = Overlapped::new()?;
+        let mut bytes_read: u32 = 0;
 
         let result = unsafe {
             ReadFile(
                 self.handle.value,
                 data.as_mut_ptr() as *mut c_void,
                 data.len() as u32,
-                ptr::null_mut(),
+                &mut bytes_read,
                 overlapped.get_mut(),
             )
         };
@@ -196,11 +198,13 @@ impl NamedPipeConnection {
 
             match err.raw_os_error().unwrap() as u32 {
                 ERROR_IO_PENDING => {}, // Expected, as we're not blocking on I/O
-                ERROR_NO_DATA => { return Ok(0); },
+                ERROR_NO_DATA => { return Ok(0); }, // If we have no data
                 _ => {
                     return Err(err);
                 }
             }
+        } else {
+            return Ok(bytes_read);
         }
 
         let bytes_read: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;
@@ -240,7 +244,7 @@ impl NamedPipeConnection {
                 self.handle.value,
                 data.as_ptr() as *const c_void,
                 data.len() as u32,
-                ptr::null_mut(),
+                &mut bytes_written,
                 overlapped.get_mut(),
             )
         };
@@ -249,11 +253,13 @@ impl NamedPipeConnection {
             let err = std::io::Error::last_os_error();
 
             match err.raw_os_error().unwrap() as u32 {
-                ERROR_IO_PENDING => {} // Expected, as we're not blocking on I/O
+                ERROR_IO_PENDING => { }, // Expected, as we're not blocking on I/O
                 _ => {
                     return Err(err);
                 }
             }
+        } else {
+            return Ok(bytes_written);
         }
 
         let bytes_written: u32 = await!(overlapped.await_bytes_transferred(&self.handle))?;

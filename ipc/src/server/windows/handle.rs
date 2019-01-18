@@ -21,7 +21,7 @@ impl Handle {
     pub fn new(handle: HANDLE) -> Handle {
         let id = HANDLE_ID.fetch_add(1, Ordering::SeqCst);
         NUM_HANDLES.fetch_add(1, Ordering::SeqCst);
-        debug!("Handle: created {}", id);
+        // debug!("Handle: created {}", id);
 
         Handle { value: handle, id: id }
     }
@@ -45,7 +45,7 @@ impl Handle {
 impl Drop for Handle {
     #[cfg(debug_assertions)]
     fn drop(&mut self) {
-        debug!("Handle: closed {}", self.id);
+        // debug!("Handle: closed {}", self.id);
 
         NUM_HANDLES.fetch_sub(1, Ordering::SeqCst);
 
