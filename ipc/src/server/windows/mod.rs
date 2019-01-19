@@ -1,5 +1,4 @@
 mod completion_port;
-mod event;
 mod handle;
 mod ipc;
 mod named_pipe;
