@@ -16,7 +16,6 @@ use winapi::{
 };
 
 use super::completion_port::CompletionPort;
-use super::event::Event;
 use super::handle::Handle;
 
 use std::fmt;
@@ -29,6 +28,7 @@ use std::sync::atomic::Ordering;
 use std::thread;
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct OverlappedCompletionInfo {
     pub error: i32,
     pub bytes_transferred: u32,
@@ -46,9 +46,7 @@ unsafe impl Send for Overlapped {}
 
 impl Overlapped {
     pub fn new(completion_port: Arc<CompletionPort>) -> io::Result<(Arc<Overlapped>, OverlappedAwaiter)> {
-        let event = Event::new()?;
         let mut overlapped: OVERLAPPED = unsafe { mem::zeroed() };
-        overlapped.hEvent = event.handle.value;
         
         let waker = Arc::new(AtomicWaker::new());
 
@@ -59,7 +57,6 @@ impl Overlapped {
         });
 
         let overlapped_awaiter = OverlappedAwaiter {
-            event: event,
             waker: overlapped_wrapper.waker.clone(),
             completion_port: completion_port,
             overlapped: overlapped_wrapper.clone()
@@ -80,7 +77,6 @@ impl Overlapped {
 pub struct OverlappedAwaiter {
     waker: Arc<AtomicWaker>,
     completion_port: Arc<CompletionPort>,
-    event: Event,
     overlapped: Arc<Overlapped>,
 }
 

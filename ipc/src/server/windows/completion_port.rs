@@ -1,6 +1,7 @@
+use log::{debug};
 use winapi::{
     shared::{
-        minwindef::{FALSE},
+        minwindef::{FALSE, TRUE},
         winerror::{ERROR_ABANDONED_WAIT_0}
     },
     um::{
@@ -12,7 +13,8 @@ use winapi::{
             OVERLAPPED
         },
         winbase::{
-            INFINITE
+            INFINITE,
+            SetFileCompletionNotificationModes,
         }
     }
 };
@@ -30,6 +32,9 @@ pub struct CompletionPort {
     handle: Handle
 }
 
+// Not sure why this isn't defined in winapi.
+const FILE_SKIP_COMPLETION_PORT_ON_SUCCESS: u8 = 0x1;
+
 impl CompletionPort {
     pub fn new(file_handle: &Handle) -> std::io::Result<CompletionPort> {
         let iocp_handle = unsafe {
@@ -45,8 +50,21 @@ impl CompletionPort {
             return Err(std::io::Error::last_os_error());
         }
 
+        let result = unsafe { 
+            SetFileCompletionNotificationModes(
+                file_handle.value,
+                FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
+            )
+        };
+
+        let handle_wrapper = Handle::new(iocp_handle);
+
+        if result != TRUE {
+            return Err(std::io::Error::last_os_error());
+        }
+
         Ok(CompletionPort {
-            handle: Handle::new(iocp_handle)
+            handle: handle_wrapper
         })
     }
 
@@ -54,6 +72,11 @@ impl CompletionPort {
         let mut bytes_transferred: u32 = 0;
         let mut dummy: usize = 0;
         let mut overlapped: *mut OVERLAPPED = ptr::null_mut();
+
+        #[cfg(debug_assertions)]
+        {
+            debug!("CompletionPort: waiting on event.");
+        }
 
         let result = unsafe {
             GetQueuedCompletionStatus(
@@ -64,6 +87,11 @@ impl CompletionPort {
                 INFINITE
             )
         };
+
+        #[cfg(debug_assertions)]
+        {
+            debug!("CompletionPort: got event.");
+        }
 
         let overlapped_coerced: *mut Overlapped = unsafe { mem::transmute(overlapped) };
         let mut raw_err = 0 as i32;
@@ -85,6 +113,9 @@ impl CompletionPort {
                 bytes_transferred: bytes_transferred
             });
 
+            // The intent is for get_completion_status function to be called from a different thread than the one 
+            // awaiting the I/O event. As such, we need to guarantee the awaiting threads see the set_completion_info
+            // before this thread calls the waker.
             atomic::fence(Ordering::SeqCst);
 
             Arc::from_raw(overlapped_coerced)
