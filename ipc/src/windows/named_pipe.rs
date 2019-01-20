@@ -88,7 +88,7 @@ impl NamedPipeServer {
 
         let handle = Handle::new(handle);
 
-        CompletionPort::get()?.add_file_handle(&handle);
+        CompletionPort::get()?.add_file_handle(&handle)?;
 
         Ok(NamedPipeServer {
             handle: handle,
@@ -123,7 +123,7 @@ impl NamedPipeServer {
     async fn wait_for_connection_internal(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
-        let (mut overlapped, overlapped_awaiter) = Overlapped::new()?;
+        let (overlapped, overlapped_awaiter) = Overlapped::new()?;
 
         let new_pipe = NamedPipeServer::create(&self.name, false)?;
 

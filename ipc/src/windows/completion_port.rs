@@ -1,11 +1,12 @@
 use log::{debug};
 use winapi::{
     shared::{
-        minwindef::{FALSE, TRUE},
+        minwindef::{FALSE},
         winerror::{ERROR_ABANDONED_WAIT_0}
     },
     um::{
         handleapi::{
+            CloseHandle,
             INVALID_HANDLE_VALUE
         },
         ioapiset::{
@@ -144,6 +145,16 @@ impl CompletionPort {
                     FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
                 )
             };
+
+            if result == FALSE {
+                // Ideally we'd wrap the HANDLE in a Handle that would manage its lifetime. However,
+                // if we're attaching to an existing iocp, the returned handle is the existing iocp's
+                // HANDLE, which we don't own. If we wrapped in a Handle, there are now 2 Boxed references
+                // to the same HANDLE and either one dropping will free the other, which is wrong. So,
+                // we don't wrap in a Handle and manage cleanup manually.
+                let _ = unsafe { CloseHandle(iocp_handle) };
+                return Err(std::io::Error::last_os_error());
+            }
         }      
 
         Ok(iocp_handle)

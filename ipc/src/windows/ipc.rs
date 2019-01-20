@@ -4,8 +4,6 @@
 
 use super::named_pipe::{NamedPipeClient, NamedPipeConnection, NamedPipeServer};
 
-use std::ffi::OsString;
-
 pub struct IpcServerWrapper {
     pipe: NamedPipeServer,
 }

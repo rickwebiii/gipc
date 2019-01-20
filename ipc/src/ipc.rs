@@ -115,7 +115,7 @@ impl MessageIpcConnection {
             let (_, buffer) = data.split_at_mut(bytes_remaining as usize);
 
             // Perform our read in 16MB chunks.
-            let (buffer, _) = data.split_at_mut(MessageIpcConnection::get_chunk_size(bytes_remaining as usize));
+            let (buffer, _) = buffer.split_at_mut(MessageIpcConnection::get_chunk_size(bytes_remaining as usize));
 
             bytes_remaining = bytes_remaining - await!(self.connection.read(buffer))? as u64;
         }
@@ -139,7 +139,7 @@ impl MessageIpcConnection {
         while bytes_remaining > 0 {
             let (_, buffer) = data.split_at(bytes_remaining as usize);
 
-            let (buffer, _) = data.split_at(MessageIpcConnection::get_chunk_size(bytes_remaining as usize));
+            let (buffer, _) = buffer.split_at(MessageIpcConnection::get_chunk_size(bytes_remaining as usize));
 
             bytes_remaining = bytes_remaining - await!(self.connection.write(buffer))? as u64;
         }

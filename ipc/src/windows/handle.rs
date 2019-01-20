@@ -37,6 +37,8 @@ impl Handle {
     }
 
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    /// An escape hatch for testing that allows you to see how many Handles remain open.
     pub fn num_open_handles() -> usize {
         NUM_HANDLES.load(Ordering::SeqCst)
     }

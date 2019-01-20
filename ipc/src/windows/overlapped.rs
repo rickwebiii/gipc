@@ -40,7 +40,7 @@ unsafe impl Send for Overlapped {}
 impl Overlapped {
     /// Creates a new Overlapped structure for use with Win32 async I/O operations.
     pub fn new() -> io::Result<(Arc<Overlapped>, OverlappedAwaiter)> {
-        let mut overlapped: OVERLAPPED = unsafe { mem::zeroed() };
+        let overlapped: OVERLAPPED = unsafe { mem::zeroed() };
         
         let waker = Arc::new(AtomicWaker::new());
 
@@ -114,7 +114,7 @@ impl Future for OverlappedFuture {
         // results.
         atomic::fence(Ordering::Release);
 
-        match &self.overlapped.completion_info {
+        match &self.overlapped.get_completion_info() {
             Some(info) => {
                 if info.error != ERROR_SUCCESS as i32 {
                     Poll::Ready(Err(std::io::Error::from_raw_os_error(info.error)))
