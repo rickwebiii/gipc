@@ -1,29 +1,23 @@
 use futures::Future;
 use futures::task::{LocalWaker, Poll, AtomicWaker};
-use log::{debug};
 use winapi::{
     shared::{
-        minwindef::{FALSE, TRUE},
         winerror::{
             ERROR_SUCCESS
         }
     },
     um::{
-        ioapiset::GetOverlappedResult, 
         minwinbase::OVERLAPPED,
-        synchapi::{WaitForSingleObject},
     },
 };
 
 use super::completion_port::CompletionPort;
-use super::handle::Handle;
 
-use std::fmt;
 use std::io;
 use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic;
 use std::sync::atomic::Ordering;
 use std::thread;
 
@@ -108,6 +102,10 @@ impl Future for OverlappedFuture {
 
     fn poll(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Self::Output> {
         self.overlapped.waker.register(lw);
+
+        // Guarantee we never perceive the iocp thread waking us before it's written its
+        // results.
+        atomic::fence(Ordering::Release);
 
         match &self.overlapped.completion_info {
             Some(info) => {

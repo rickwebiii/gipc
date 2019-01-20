@@ -116,7 +116,7 @@ impl CompletionPort {
             // The intent is for get_completion_status function to be called from a different thread than the one 
             // awaiting the I/O event. As such, we need to guarantee the awaiting threads see the set_completion_info
             // before this thread calls the waker.
-            atomic::fence(Ordering::SeqCst);
+            atomic::fence(Ordering::Acquire);
 
             Arc::from_raw(overlapped_coerced)
         }
