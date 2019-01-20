@@ -39,7 +39,7 @@ unsafe impl Sync for Overlapped {}
 unsafe impl Send for Overlapped {}
 
 impl Overlapped {
-    pub fn new(completion_port: Arc<CompletionPort>) -> io::Result<(Arc<Overlapped>, OverlappedAwaiter)> {
+    pub fn new() -> io::Result<(Arc<Overlapped>, OverlappedAwaiter)> {
         let mut overlapped: OVERLAPPED = unsafe { mem::zeroed() };
         
         let waker = Arc::new(AtomicWaker::new());
@@ -52,7 +52,6 @@ impl Overlapped {
 
         let overlapped_awaiter = OverlappedAwaiter {
             waker: overlapped_wrapper.waker.clone(),
-            completion_port: completion_port,
             overlapped: overlapped_wrapper.clone()
         };
 
@@ -66,17 +65,20 @@ impl Overlapped {
     pub fn get_completion_info<'a>(&'a self) -> &'a Option<OverlappedCompletionInfo> {
         &self.completion_info
     }
+
+    pub fn get_waker<'a>(&'a self) -> &'a Arc<AtomicWaker> {
+        &self.waker
+    }
 }
 
 pub struct OverlappedAwaiter {
     waker: Arc<AtomicWaker>,
-    completion_port: Arc<CompletionPort>,
     overlapped: Arc<Overlapped>,
 }
 
 impl OverlappedAwaiter {
     pub async fn await(self) -> io::Result<u32> {
-        let bytes_transferred = await!(OverlappedFuture::new(self.overlapped, self.completion_port))?;
+        let bytes_transferred = await!(OverlappedFuture::new(self.overlapped))?;
 
         Ok(bytes_transferred)
     }
@@ -85,14 +87,12 @@ impl OverlappedAwaiter {
 
 struct OverlappedFuture {
     overlapped: Arc<Overlapped>,
-    completion_port: Arc<CompletionPort>,
 }
 
 impl OverlappedFuture {
-    pub fn new(overlapped: Arc<Overlapped>, completion_port: Arc<CompletionPort>) -> OverlappedFuture {
+    pub fn new(overlapped: Arc<Overlapped>) -> OverlappedFuture {
         OverlappedFuture {
             overlapped: overlapped,
-            completion_port: completion_port
         }
     }
 }
@@ -116,14 +116,6 @@ impl Future for OverlappedFuture {
                 }                
             },
             None => {
-                let completion_port = self.completion_port.clone();
-
-                thread::spawn(move || {
-                    let completion = completion_port.get_completion_status();
-
-                    completion.waker.wake();
-                });
-
                 Poll::Pending
             }
         }
