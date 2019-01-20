@@ -1,4 +1,4 @@
-use log::debug;
+use log::{debug, error};
 use winapi::{
     shared::{
         minwindef::TRUE,
@@ -195,6 +195,7 @@ impl NamedPipeConnection {
                 ERROR_IO_PENDING => {}, // Expected, as we're not blocking on I/O
                 ERROR_NO_DATA => { return Ok(0); }, // If we have no data
                 _ => {
+                    error!("Read error: {:?}", err);
                     return Err(err);
                 }
             }
@@ -232,25 +233,26 @@ impl NamedPipeConnection {
             )
         };
 
-        #[cfg(debug_assertions)]
-        {
-            debug!(
-                "Connection: Wrote {} bytes on pipe {}",
-                bytes_written, self.handle.id()
-            );
-        }
-
         if result != TRUE {
             let err = std::io::Error::last_os_error();
 
             match err.raw_os_error().unwrap() as u32 {
                 ERROR_IO_PENDING => { }, // Expected, as we're not blocking on I/O
                 _ => {
+                    error!("Write error: {:?}", err);
                     return Err(err);
                 }
             }
         } else {
             return Ok(bytes_written);
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            debug!(
+                "Connection: Wrote {} bytes on pipe {}",
+                bytes_written, self.handle.id()
+            );
         }
 
         let bytes_written: u32 = await!(overlapped_awaiter.await())?;
