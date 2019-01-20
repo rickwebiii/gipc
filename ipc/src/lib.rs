@@ -4,6 +4,9 @@ mod ipc;
 mod windows;
 
 pub use self::ipc::{
+    MessageIpcClient,
+    MessageIpcConnection,
+    MessageIpcServer,
     RawIpcClient,
     RawIpcConnection,
     RawIpcServer,

@@ -68,6 +68,8 @@ impl NamedPipeServer {
         let pipe_name_bytes = make_pipe_name(&pipe_name);
 
         let handle = unsafe {
+            // SECURITY: Reject remote clients, as this presents potential security ramifications for consumers
+            // and this library is intended for communication within a single machine.
             CreateNamedPipeW(
                 pipe_name_bytes.as_ptr(),
                 PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | first_instance,
