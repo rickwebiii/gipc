@@ -41,20 +41,21 @@ fn make_pipe_name(osstr: &OsStr) -> Vec<u16> {
 }
 
 impl NamedPipeServer {
-    #[cfg(debug_assertions)]
+    /// Creates a new pipe server on \\.\pipe\<name>.
     pub fn new(name: &str) -> std::io::Result<NamedPipeServer> {
-        debug!("NamedPipeServer: Creating named pipe {}...", name);
+        #[cfg(debug_assertions)]
+        {
+            debug!("NamedPipeServer: Creating named pipe {}...", name);
+        }
 
         let pipe = NamedPipeServer::create(&OsString::from(PIPE_PREFIX.to_owned() + name), true)?;
 
-        debug!("NamedPipeServer: Created named pipe {} with id {}", name, pipe.handle.id());
+        #[cfg(debug_assertions)]
+        {
+            debug!("NamedPipeServer: Created named pipe {} with id {}", name, pipe.handle.id());
+        }
 
         Ok(pipe)
-    }
-
-    #[cfg(not(debug_assertions))]
-    pub fn new(name: &str) -> std::io::Result<NamedPipeServer> {
-        NamedPipeServer::create(&OsString::from(PIPE_PREFIX.to_owned() + name), true)
     }
 
     fn create(name: &OsStr, first: bool) -> std::io::Result<NamedPipeServer> {
@@ -93,24 +94,31 @@ impl NamedPipeServer {
         })
     }
 
+    /// Blocks the current task until a client connects.
     pub async fn wait_for_connection(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
         let server_id = self.handle.id();
 
-        debug!(
-            "NamedPipeServer: waiting for connection on {}",
-            server_id
-        );
+        #[cfg(debug_assertions)]
+        {
+            debug!(
+                "NamedPipeServer: waiting for connection on {}",
+                server_id
+            );
+        }
 
         let (connection, server) = await!(self.wait_for_connection_internal())?;
 
-        debug!("NamedPipeServer: client connected on {}. Connection id {}.", server_id, connection.id());
+        #[cfg(debug_assertions)]
+        {
+            debug!("NamedPipeServer: client connected on {}. Connection id {}.", server_id, connection.id());
+        }
 
         Ok((connection, server))
     }
 
-    pub async fn wait_for_connection_internal(
+    async fn wait_for_connection_internal(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
         let (mut overlapped, overlapped_awaiter) = Overlapped::new()?;
