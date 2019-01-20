@@ -148,33 +148,12 @@ pub struct NamedPipeConnection {
 }
 
 impl NamedPipeConnection {
+    /// Creates a new named pipe connection.
     pub fn new(handle: Handle) -> NamedPipeConnection {
         NamedPipeConnection { handle: handle }
     }
 
-    #[cfg(debug_assertions)]
-    pub async fn read<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
-        let mut bytes_read: u32 = 0;
-
-        debug!(
-            "Connection: attempt read {} bytes on pipe {}",
-            data.len(),
-            self.id()
-        );
-
-        while bytes_read == 0 {
-            bytes_read = await!(self.read_internal(data))?;
-        }
-
-        debug!(
-            "Connection: read {} bytes on pipe {}",
-            bytes_read, self.id()
-        );
-
-        Ok(bytes_read)
-    }
-
-    #[cfg(not(debug_assertions))]
+    /// Reads data on named pipe connection, blocking the current task until data exists.
     pub async fn read<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
         let mut bytes_read: u32 = 0;
 
@@ -185,8 +164,8 @@ impl NamedPipeConnection {
         Ok(bytes_read)
     }
 
-    pub async fn read_internal<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
-        let (mut overlapped, overlapped_awaiter) = Overlapped::new()?;
+    async fn read_internal<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
+        let (overlapped, overlapped_awaiter) = Overlapped::new()?;
         let mut bytes_read: u32 = 0;
 
         let result = unsafe {
@@ -218,32 +197,20 @@ impl NamedPipeConnection {
         Ok(bytes_read)
     }
 
-    #[cfg(debug_assertions)]
+    /// Writes the specified data to the named pipe connection. The resulting task blocks
+    /// until this completes.
     pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
-        debug!(
-            "Connection: Attempting write of {} bytes on named pipe {}",
-            data.len(),
-            self.handle.id()
-        );
-
-        let bytes_written = await!(self.write_internal(data))?;
-
-        debug!(
-            "Connection: Wrote {} bytes on pipe {}",
-            bytes_written, self.handle.id()
-        );
-
-        Ok(bytes_written)
-    }
-
-    #[cfg(not(debug_assertions))]
-    pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
-        await!(self.write_internal(data))
-    }
-
-    pub async fn write_internal<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
-        let (mut overlapped, overlapped_awaiter) = Overlapped::new()?;
+        let (overlapped, overlapped_awaiter) = Overlapped::new()?;
         let mut bytes_written: u32 = 0;
+
+        #[cfg(debug_assertions)]
+        {
+            debug!(
+                "Connection: Attempting write of {} bytes on named pipe {}",
+                data.len(),
+                self.handle.id()
+            );
+        }
 
         let result = unsafe {
             WriteFile(
@@ -254,6 +221,14 @@ impl NamedPipeConnection {
                 mem::transmute(Arc::into_raw(overlapped)),
             )
         };
+
+        #[cfg(debug_assertions)]
+        {
+            debug!(
+                "Connection: Wrote {} bytes on pipe {}",
+                bytes_written, self.handle.id()
+            );
+        }
 
         if result != TRUE {
             let err = std::io::Error::last_os_error();
@@ -283,27 +258,14 @@ pub struct NamedPipeClient {
 }
 
 impl NamedPipeClient {
-    #[cfg(debug_assertions)]
+    /// Creates a named pipe connection to \\.\pipe\<pipe_name>
     pub fn new(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
-        debug!("Client: creating name: {}", pipe_name);
-
-        let connection = NamedPipeClient::new_internal(pipe_name)?;
-
-        debug!(
-            "Client: created name: {} id: {}",
-            pipe_name, connection.handle.id()
-        );
-
-        Ok(connection)
-    }
-
-    #[cfg(not(debug_assertions))]
-    pub fn new(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
-        NamedPipeClient::new_internal(pipe_name)
-    }
-
-    fn new_internal(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
         let pipe_name_bytes = make_pipe_name(&OsString::from(PIPE_PREFIX.to_owned() + pipe_name));
+
+        #[cfg(debug_assertions)]
+        {
+            debug!("Client: creating name: {}", pipe_name);
+        }
 
         let handle = unsafe {
             CreateFileW(
@@ -323,7 +285,15 @@ impl NamedPipeClient {
 
         let handle = Handle::new(handle);
 
-        CompletionPort::get()?.add_file_handle(&handle);
+        #[cfg(debug_assertions)]
+        {
+            debug!(
+                "Client: created name: {} id: {}",
+                pipe_name, handle.id()
+            );
+        }
+
+        CompletionPort::get()?.add_file_handle(&handle)?;
 
         Ok(NamedPipeConnection::new(handle))
     }
@@ -352,10 +322,11 @@ mod tests {
 
     /// Asserts there are no open Win32 HANDLEs. This assertion relies on a global atomic,
     /// which probably won't be zero if tests are running in parallel. To actually test for,
-    /// leaks, uncomment the contained assertion and run cargo test -- --test-threads=1
+    /// leaks, uncomment the contained assertion and run "cargo test -- --test-threads=1"
     #[cfg(debug_assertions)]
     fn assert_no_handles() {
-        // assert_eq!(Handle::num_open_handles(), 0);
+        // After running the tests, we expect the handle to the io completion queue singleton to remain.
+        // assert_eq!(Handle::num_open_handles(), 1);
     }
 
     #[cfg(not(debug_assertions))]
