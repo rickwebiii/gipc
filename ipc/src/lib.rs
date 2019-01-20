@@ -1,7 +1,10 @@
 #![feature(async_await, await_macro, futures_api)]
 
-mod client;
-mod server;
+mod ipc;
+mod windows;
 
-pub use self::client::Client;
-pub use self::server::Server;
+pub use self::ipc::{
+    RawIpcClient,
+    RawIpcConnection,
+    RawIpcServer,
+};
