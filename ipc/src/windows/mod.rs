@@ -4,4 +4,8 @@ mod ipc;
 mod named_pipe;
 mod overlapped;
 
-pub use self::ipc::{IpcClientWrapper, IpcConnectionWrapper, IpcServerWrapper};
+pub use self::ipc::{
+    IpcClientWrapper,
+    IpcConnectionWrapper,
+    IpcServerWrapper
+};

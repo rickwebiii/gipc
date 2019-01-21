@@ -314,35 +314,21 @@ impl NamedPipeClient {
 #[cfg(test)]
 mod tests {
     use super::{Handle, NamedPipeClient, NamedPipeServer};
+    use crate::test_utils::{install_logger};
 
     use futures::executor::ThreadPoolBuilder;
     use log::{debug, info};
-    use simplelog::{Config, LevelFilter, TermLogger};
 
-    use std::mem;
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::sync::Once;
     use std::thread;
 
-    static START: Once = Once::new();
-
-    fn install_logger() {
-        START.call_once(|| {
-            TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
-        });
-    }
 
     /// Asserts there are no open Win32 HANDLEs. This assertion relies on a global atomic,
     /// which probably won't be zero if tests are running in parallel. To actually test for,
     /// leaks, uncomment the contained assertion and run "cargo test -- --test-threads=1"
-    #[cfg(debug_assertions)]
-    fn assert_no_handles() {
+    pub fn assert_no_handles() {
         // After running the tests, we expect the handle to the io completion queue singleton to remain.
         // assert_eq!(Handle::num_open_handles(), 1);
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn assert_no_handles() {
     }
 
     #[test]
