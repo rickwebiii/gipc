@@ -294,4 +294,128 @@ mod tests {
 
         client_connected_rx.recv().unwrap();
     }
+
+    fn allocate_message(len: usize) -> Vec<u8> {
+        let mut data: Vec<u8> = vec![0; len];
+
+        for i in 0..data.len() {
+            data[i] = i as u8;
+        }
+
+        data
+    }
+
+    fn validate_message(message: Vec<u8>) {
+        for i in 0..message.len() {
+            assert_eq!(i as u8, message[i]);
+        }
+    }
+
+    #[test]
+    fn can_write_large_messages() {
+        install_logger();
+
+        let server_name = get_server_name();
+
+        let (server_started_tx, server_started_rx) = channel();
+        let (client_connected_tx, client_connected_rx) = channel();
+        // A side-channel so the server knows the client has received its data
+        // and the thread can die.
+        let (pong_tx, pong_rx) = channel();
+
+        let server_server_name = server_name.to_owned();
+
+        let server_thread = thread::Builder::new()
+            .name(server_name.to_owned() + "_server")
+            .spawn(move || 
+        {
+            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+
+            async fn run_server(
+                start_tx: Sender<()>,
+                pong_rx: Receiver<()>,
+                server_name: &str
+            ) -> std::io::Result<()> {
+                let server = MessageIpcServer::new(server_name)?;
+                start_tx.send(()).unwrap();
+
+                let (connection, _server) = await!(server.wait_for_connection())?;
+
+                info!("Server receiving");
+
+                let message = await!(connection.read())?;
+
+                validate_message(message);
+
+                info!("Server sending");
+
+                let message = allocate_message(100 * 1024 * 1024);
+
+                await!(connection.write(&message))?;
+
+                pong_rx.recv().unwrap();
+
+                Ok(())
+            }
+
+            pool.run(
+                async {
+                    match await!(run_server(server_started_tx, pong_rx, &server_server_name)) {
+                        Ok(_) => {
+                            client_connected_tx.send(()).unwrap();
+                        }
+                        Err(err) => {
+                            panic!(format!("Test failed {}", err));
+                        }
+                    };
+                },
+            );
+        }).unwrap();
+
+        let client_server_name = server_name.to_owned();
+
+        let client_thread = thread::Builder::new()
+            .name(server_name.to_owned() + "client")
+            .spawn(move || 
+        {
+            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+
+            async fn run_client(pong_tx: Sender<()>, server_name: &str) -> std::io::Result<()> {
+                let client = MessageIpcClient::new(server_name)?;
+
+                let message = allocate_message(100 * 1024 * 1024);
+
+                info!("Client sending");
+                await!(client.write(&message))?;
+
+                info!("Client receiving");
+                let message = await!(client.read())?;
+
+                validate_message(message);
+
+                pong_tx.send(()).unwrap();
+
+                Ok(())
+            }
+
+            // Wait for the server to start.
+            server_started_rx.recv().unwrap();
+
+            pool.run(
+                async {
+                    match await!(run_client(pong_tx, &client_server_name)) {
+                        Ok(_) => {}
+                        Err(err) => {
+                            panic!(format!("Test failed {}", err));
+                        }
+                    };
+                },
+            );
+        }).unwrap();
+
+        server_thread.join().unwrap();
+        client_thread.join().unwrap();
+
+        client_connected_rx.recv().unwrap();
+    }
 }

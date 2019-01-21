@@ -13,5 +13,5 @@ pub fn install_logger() {
 }
 
 pub fn get_server_name() -> String {
-    format!("horsey_test_server{}", IPC_SERVER_COUNT.fetch_add(0, Ordering::SeqCst))
+    format!("horsey_test_server{}", IPC_SERVER_COUNT.fetch_add(1, Ordering::SeqCst))
 }
