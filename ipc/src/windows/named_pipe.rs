@@ -100,21 +100,16 @@ impl NamedPipeServer {
     pub async fn wait_for_connection(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
-        let server_id = self.handle.id();
-
         #[cfg(debug_assertions)]
         {
-            debug!(
-                "NamedPipeServer: waiting for connection on {}",
-                server_id
-            );
+            debug!("NamedPipeServer: waiting for connection");
         }
 
         let (connection, server) = await!(self.wait_for_connection_internal())?;
 
         #[cfg(debug_assertions)]
         {
-            debug!("NamedPipeServer: client connected on {}. Connection id {}.", server_id, connection.id());
+            debug!("NamedPipeServer: client connected. Connection id {}.", connection.id());
         }
 
         Ok((connection, server))
