@@ -3,9 +3,10 @@ name = "gipc"
 version = "0.1.0"
 authors = ["rickwebiii <rick.weber.iii@gmail.com>"]
 edition = "2018"
-path="src/lib.rs"
 
 [dependencies]
-ipc = { Path = "../ipc" }
-protobuf = "2.2.2"
+ipc = { path = "../ipc" }
+log = "0.4.6"
+num_cpus = "1.9.0"
+protobuf = "2.2.5"
 futures-preview = "0.3.0-alpha.11"

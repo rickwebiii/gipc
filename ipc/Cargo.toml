@@ -6,10 +6,7 @@ edition = "2018"
 #path="src/lib.rs"
 
 [dependencies]
-#named_pipe = "0.4.0"
-
 futures-preview = "0.3.0-alpha.11"
-#parity-tokio-ipc = "0.1.0"
 ipc-channel = "0.11.2"
 log = "0.4.6"
 
@@ -19,4 +16,3 @@ features = ["errhandlingapi", "handleapi", "ioapiset", "minwindef", "namedpipeap
 
 [dev-dependencies]
 simplelog = "0.5.3"
-#futures-util-preview = "0.3.0-alpha.11"
