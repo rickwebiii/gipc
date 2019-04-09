@@ -1,4 +1,4 @@
-use log::{debug, error};
+use log::{error};
 use winapi::{
     shared::{
         minwindef::TRUE,
@@ -43,17 +43,7 @@ fn make_pipe_name(osstr: &OsStr) -> Vec<u16> {
 impl NamedPipeServer {
     /// Creates a new pipe server on \\.\pipe\<name>.
     pub fn new(name: &str) -> std::io::Result<NamedPipeServer> {
-        #[cfg(debug_assertions)]
-        {
-            debug!("NamedPipeServer: Creating named pipe {}...", name);
-        }
-
         let pipe = NamedPipeServer::create(&OsString::from(PIPE_PREFIX.to_owned() + name), true)?;
-
-        #[cfg(debug_assertions)]
-        {
-            debug!("NamedPipeServer: Created named pipe {} with id {}", name, pipe.handle.id());
-        }
 
         Ok(pipe)
     }
@@ -100,17 +90,7 @@ impl NamedPipeServer {
     pub async fn wait_for_connection(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
-        #[cfg(debug_assertions)]
-        {
-            debug!("NamedPipeServer: waiting for connection");
-        }
-
         let (connection, server) = await!(self.wait_for_connection_internal())?;
-
-        #[cfg(debug_assertions)]
-        {
-            debug!("NamedPipeServer: client connected. Connection id {}.", connection.id());
-        }
 
         Ok((connection, server))
     }
@@ -209,15 +189,6 @@ impl NamedPipeConnection {
         let (overlapped, overlapped_awaiter) = Overlapped::new()?;
         let mut bytes_written: u32 = 0;
 
-        #[cfg(debug_assertions)]
-        {
-            debug!(
-                "Connection: Attempting write of {} bytes on named pipe {}",
-                data.len(),
-                self.handle.id()
-            );
-        }
-
         let result = unsafe {
             WriteFile(
                 self.handle.value,
@@ -242,22 +213,9 @@ impl NamedPipeConnection {
             return Ok(bytes_written);
         }
 
-        #[cfg(debug_assertions)]
-        {
-            debug!(
-                "Connection: Wrote {} bytes on pipe {}",
-                bytes_written, self.handle.id()
-            );
-        }
-
         let bytes_written: u32 = await!(overlapped_awaiter.await())?;
 
         Ok(bytes_written)
-    }
-
-    #[cfg(debug_assertions)]
-    pub fn id(&self) -> usize {
-        self.handle.id()
     }
 }
 
@@ -268,11 +226,6 @@ impl NamedPipeClient {
     /// Creates a named pipe connection to \\.\pipe\<pipe_name>
     pub fn new(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
         let pipe_name_bytes = make_pipe_name(&OsString::from(PIPE_PREFIX.to_owned() + pipe_name));
-
-        #[cfg(debug_assertions)]
-        {
-            debug!("Client: creating name: {}", pipe_name);
-        }
 
         let handle = unsafe {
             CreateFileW(
@@ -292,14 +245,6 @@ impl NamedPipeClient {
 
         let handle = Handle::new(handle);
 
-        #[cfg(debug_assertions)]
-        {
-            debug!(
-                "Client: created name: {} id: {}",
-                pipe_name, handle.id()
-            );
-        }
-
         CompletionPort::get()?.add_file_handle(&handle)?;
 
         Ok(NamedPipeConnection::new(handle))
@@ -308,11 +253,12 @@ impl NamedPipeClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{Handle, NamedPipeClient, NamedPipeServer};
+    //use super::{Handle}; // Uncomment when asserting handles get freed
+    use super::{NamedPipeClient, NamedPipeServer};
     use crate::test_utils::{install_logger};
 
     use futures::executor::ThreadPoolBuilder;
-    use log::{debug, info};
+    use log::{info};
 
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::thread;
@@ -442,7 +388,7 @@ mod tests {
 
                 info!("Server sending");
 
-                let bytes_written = await!(connection.write(data.as_slice()))?;
+                let _bytes_written = await!(connection.write(data.as_slice()))?;
 
                 pong_rx.recv().unwrap();
 

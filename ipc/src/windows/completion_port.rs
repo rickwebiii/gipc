@@ -1,4 +1,3 @@
-use log::{debug};
 use winapi::{
     shared::{
         minwindef::{FALSE},
@@ -104,11 +103,7 @@ impl CompletionPort {
     pub fn add_file_handle(&self, file_handle: &Handle) -> std::io::Result<()> {
         let handle = CompletionPort::associate_completion_port(Some(self.handle.value), file_handle.value)?;
 
-        #[cfg(debug_assertions)]
-        {
-            assert_eq!(handle, self.handle.value);
-            debug!("Adding file handle to completion port.");
-        }
+        assert_eq!(handle, self.handle.value);
 
         Ok(())
     }
@@ -167,11 +162,6 @@ impl CompletionPort {
         let mut dummy: usize = 0;
         let mut overlapped: *mut OVERLAPPED = ptr::null_mut();
 
-        #[cfg(debug_assertions)]
-        {
-            debug!("CompletionPort: waiting on event.");
-        }
-
         let result = unsafe {
             // https://msdn.microsoft.com/en-us/library/Aa364986(v=VS.85).aspx
             GetQueuedCompletionStatus(
@@ -182,11 +172,6 @@ impl CompletionPort {
                 INFINITE
             )
         };
-
-        #[cfg(debug_assertions)]
-        {
-            debug!("CompletionPort: got event.");
-        }
 
         let overlapped_coerced: *mut Overlapped = unsafe { mem::transmute(overlapped) };
         let mut raw_err = 0 as i32;

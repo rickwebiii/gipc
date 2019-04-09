@@ -51,7 +51,6 @@ impl Overlapped {
         });
 
         let overlapped_awaiter = OverlappedAwaiter {
-            waker: overlapped_wrapper.waker.clone(),
             overlapped: overlapped_wrapper.clone()
         };
 
@@ -78,7 +77,6 @@ impl Overlapped {
 /// A item returned with an overlapped that you can await for the associated I/O operation
 /// to complete.
 pub struct OverlappedAwaiter {
-    waker: Arc<AtomicWaker>,
     overlapped: Arc<Overlapped>,
 }
 
