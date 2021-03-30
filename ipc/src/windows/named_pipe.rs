@@ -101,6 +101,8 @@ impl NamedPipeServer {
 
         let new_pipe = NamedPipeServer::create(&self.name, false)?;
 
+        let overlapped = Arc::new(overlapped);
+
         let success = unsafe { ConnectNamedPipe(self.handle.value, mem::transmute(Arc::into_raw(overlapped))) };
 
         // If the client connected between us creating the pipe and calling ConnectNamedPipe,
@@ -152,6 +154,8 @@ impl NamedPipeConnection {
         let (overlapped, overlapped_awaiter) = Overlapped::new()?;
         let mut bytes_read: u32 = 0;
 
+        let overlapped = Arc::new(overlapped);
+
         let result = unsafe {
             ReadFile(
                 self.handle.value,
@@ -186,6 +190,8 @@ impl NamedPipeConnection {
     pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
         let (overlapped, overlapped_awaiter) = Overlapped::new()?;
         let mut bytes_written: u32 = 0;
+
+        let overlapped = Arc::new(overlapped);
 
         let result = unsafe {
             WriteFile(
@@ -280,7 +286,7 @@ mod tests {
         let (server_got_connection_tx, server_got_connection_rx) = channel();
 
         let server_thread = thread::spawn(move || {
-            let mut pool = runtime::Runtime::new().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_server(
                 start_tx: Sender<()>,
@@ -296,7 +302,7 @@ mod tests {
                 Ok(())
             }
 
-            pool.run(
+            pool.block_on(
                 async {
                     match run_server(server_started_tx, server_got_connection_tx).await {
                         Ok(_) => {
@@ -311,7 +317,7 @@ mod tests {
         });
 
         let client_thread = thread::spawn(move || {
-            let mut pool = runtime::Runtime::new().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_client(connect_rx: Receiver<()>) -> std::io::Result<()> {
                 let _client = NamedPipeClient::new("horse")?;
@@ -323,7 +329,7 @@ mod tests {
 
             server_started_rx.recv().unwrap();
 
-            pool.run(
+            pool.block_on(
                 async {
                     match run_client(server_got_connection_rx).await {
                         Ok(_) => {}
@@ -359,7 +365,7 @@ mod tests {
             .name("server".to_owned())
             .spawn(move || 
         {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_server(
                 start_tx: Sender<()>,
@@ -392,7 +398,7 @@ mod tests {
                 Ok(())
             }
 
-            pool.run(
+            pool.block_on(
                 async {
                     match run_server(server_started_tx, pong_rx).await {
                         Ok(_) => {
@@ -410,7 +416,7 @@ mod tests {
             .name("client".to_owned())
             .spawn(move || 
         {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_client(pong_tx: Sender<()>) -> std::io::Result<()> {
                 let client = NamedPipeClient::new("cow")?;
@@ -439,16 +445,14 @@ mod tests {
             // Wait for the server to start.
             server_started_rx.recv().unwrap();
 
-            pool.run(
-                async {
-                    match run_client(pong_tx).await {
-                        Ok(_) => {}
-                        Err(err) => {
-                            panic!(format!("Test failed {}", err));
-                        }
-                    };
-                },
-            );
+            pool.block_on(async {
+                match run_client(pong_tx).await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        panic!(format!("Test failed {}", err));
+                    }
+                };
+            });
         }).unwrap();
 
         server_thread.join().unwrap();

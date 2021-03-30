@@ -68,7 +68,10 @@ impl CompletionPort {
                             .expect("Couldn't get I/O completion port. Named pipes won't work.")
                             .get_completion_status();
 
-                        overlapped.get_waker().wake();
+                        match overlapped.get_waker() {
+                            Some(waker) => { waker.wake(); }
+                            None => { panic!("Invariant violated: waker not set.") }
+                        }
                     }
                 });
 

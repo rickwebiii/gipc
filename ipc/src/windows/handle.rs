@@ -1,13 +1,13 @@
 use winapi::um::{handleapi::CloseHandle, winnt::HANDLE};
 
 #[cfg(debug_assertions)]
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(debug_assertions)]
-static HANDLE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
+static HANDLE_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(debug_assertions)]
-static NUM_HANDLES: AtomicUsize = ATOMIC_USIZE_INIT;
+static NUM_HANDLES: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
 pub struct Handle {

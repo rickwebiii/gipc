@@ -1,5 +1,3 @@
-#![feature(async_await, futures_api)]
-
 mod ipc;
 mod windows;
 

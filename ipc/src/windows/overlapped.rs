@@ -1,5 +1,3 @@
-use futures::Future;
-use futures::task::{LocalWaker, Poll, AtomicWaker};
 use winapi::{
     shared::{
         winerror::{
@@ -11,15 +9,18 @@ use winapi::{
     },
 };
 
+use std::future::Future;
 use std::io;
 use std::mem;
+use std::cell::RefCell;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::Ordering;
+use std::task::{ Context, Poll, Waker };
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 /// A PODS containing the error code and number of bytes transferred for an I/O operation.
 pub struct OverlappedCompletionInfo {
     pub error: i32,
@@ -30,8 +31,8 @@ pub struct OverlappedCompletionInfo {
 /// The data associated with a Win32 I/O operation.
 pub struct Overlapped {
     overlapped: OVERLAPPED,
-    waker: Arc<AtomicWaker>,
-    completion_info: Option<OverlappedCompletionInfo>
+    waker: RefCell<Option<Waker>>,
+    completion_info: RefCell<Option<OverlappedCompletionInfo>>
 }
 
 unsafe impl Sync for Overlapped {}
@@ -42,12 +43,10 @@ impl Overlapped {
     pub fn new() -> io::Result<(Arc<Overlapped>, OverlappedAwaiter)> {
         let overlapped: OVERLAPPED = unsafe { mem::zeroed() };
         
-        let waker = Arc::new(AtomicWaker::new());
-
         let overlapped_wrapper = Arc::new(Overlapped {
             overlapped: overlapped,
-            waker: waker,
-            completion_info: None
+            waker: RefCell::new(None),
+            completion_info: RefCell::new(None)
         });
 
         let overlapped_awaiter = OverlappedAwaiter {
@@ -58,19 +57,23 @@ impl Overlapped {
     }
 
     /// Sets the completion info for the finished I/O operation.
-    pub fn set_completion_info(&mut self, info: OverlappedCompletionInfo) {
-        self.completion_info = Some(info);
+    pub fn set_completion_info(&self, info: OverlappedCompletionInfo) {
+        self.completion_info.borrow_mut().replace(info);
     }
 
     /// Gets the completion info associated with the completed overlapped operation, or None if
     /// the operation hansn't completed.
-    pub fn get_completion_info<'a>(&'a self) -> &'a Option<OverlappedCompletionInfo> {
-        &self.completion_info
+    pub fn get_completion_info(&self) -> Option<OverlappedCompletionInfo> {
+        self.completion_info.borrow().clone()
     }
 
     /// Gets the waker that alerts the task this overlapped operation needs polling (i.e. has completed).
-    pub fn get_waker<'a>(&'a self) -> &'a Arc<AtomicWaker> {
-        &self.waker
+    pub fn get_waker(&self) -> Option<Waker> {
+        self.waker.borrow().clone()
+    }
+
+    fn set_waker(&self, waker: &Waker) {
+        self.waker.borrow_mut().replace(waker.clone());
     }
 }
 
@@ -83,7 +86,7 @@ pub struct OverlappedAwaiter {
 impl OverlappedAwaiter {
     /// Blocks the current task until the associated overlapped completes.
     pub async fn await_overlapped(self) -> io::Result<u32> {
-        let bytes_transferred = OverlappedFuture::new(self.overlapped).await?;
+        let bytes_transferred = OverlappedFuture::new(self.overlapped.clone()).await?;
 
         Ok(bytes_transferred)
     }
@@ -105,14 +108,14 @@ impl OverlappedFuture {
 impl Future for OverlappedFuture {
     type Output = io::Result<u32>;
 
-    fn poll(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Self::Output> {
-        self.overlapped.waker.register(lw);
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        self.overlapped.set_waker(ctx.waker());
 
         // Guarantee we never perceive the iocp thread waking us before it's written its
         // results.
         atomic::fence(Ordering::Release);
 
-        match &self.overlapped.get_completion_info() {
+        match self.overlapped.get_completion_info() {
             Some(info) => {
                 if info.error != ERROR_SUCCESS as i32 {
                     Poll::Ready(Err(std::io::Error::from_raw_os_error(info.error)))

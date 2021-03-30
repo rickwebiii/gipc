@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["rickwebiii <rick.weber.iii@gmail.com>"]
 edition = "2018"
 
+[features]
+debug_assertions = []
+
 [dependencies]
 tokio = { version = "1.4.0", features = ["rt", "rt-multi-thread"] }
 

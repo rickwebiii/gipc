@@ -202,7 +202,7 @@ mod tests {
             .name(server_name.to_owned() + "_server")
             .spawn(move || 
         {
-            let mut pool = runtime::Runtime::new().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_server(
                 start_tx: Sender<()>,
@@ -232,7 +232,7 @@ mod tests {
                 Ok(())
             }
 
-            pool.run(
+            pool.block_on(
                 async {
                     match run_server(server_started_tx, pong_rx, &server_server_name).await {
                         Ok(_) => {
@@ -252,7 +252,7 @@ mod tests {
             .name(server_name.to_owned() + "client")
             .spawn(move || 
         {
-            let mut pool = runtime::Runtime::new().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_client(pong_tx: Sender<()>, server_name: &str) -> std::io::Result<()> {
                 let client = MessageIpcClient::new(server_name)?;
@@ -277,7 +277,7 @@ mod tests {
             // Wait for the server to start.
             server_started_rx.recv().unwrap();
 
-            pool.run(
+            pool.block_on(
                 async {
                     match run_client(pong_tx, &client_server_name).await {
                         Ok(_) => {}
@@ -329,7 +329,7 @@ mod tests {
             .name(server_name.to_owned() + "_server")
             .spawn(move || 
         {
-            let mut pool = runtime::Runtime::new().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_server(
                 start_tx: Sender<()>,
@@ -358,7 +358,7 @@ mod tests {
                 Ok(())
             }
 
-            pool.run(
+            pool.block_on(
                 async {
                     match run_server(server_started_tx, pong_rx, &server_server_name).await {
                         Ok(_) => {
@@ -378,7 +378,7 @@ mod tests {
             .name(server_name.to_owned() + "client")
             .spawn(move || 
         {
-            let mut pool = runtime::Runtime::new().unwrap();
+            let pool = runtime::Runtime::new().unwrap();
 
             async fn run_client(pong_tx: Sender<()>, server_name: &str) -> std::io::Result<()> {
                 let client = MessageIpcClient::new(server_name)?;
@@ -401,7 +401,7 @@ mod tests {
             // Wait for the server to start.
             server_started_rx.recv().unwrap();
 
-            pool.run(
+            pool.block_on(
                 async {
                     match run_client(pong_tx, &client_server_name).await {
                         Ok(_) => {}
