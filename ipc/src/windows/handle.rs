@@ -26,11 +26,6 @@ impl Handle {
         Handle { value: handle, id: id }
     }
 
-    #[cfg(debug_assertions)]
-    pub fn id(&self) -> usize {
-        self.id
-    }
-
     #[cfg(not(debug_assertions))] 
     pub fn new(handle: HANDLE) -> Handle {
         Handle { value: handle }

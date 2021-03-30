@@ -1,4 +1,3 @@
-use log::{error};
 use winapi::{
     shared::{
         minwindef::TRUE,
@@ -170,7 +169,6 @@ impl NamedPipeConnection {
                 ERROR_IO_PENDING => {}, // Expected, as we're not blocking on I/O
                 ERROR_NO_DATA => { return Ok(0); }, // If we have no data
                 _ => {
-                    error!("Read error: {:?}", err);
                     return Err(err);
                 }
             }
@@ -205,7 +203,6 @@ impl NamedPipeConnection {
             match err.raw_os_error().unwrap() as u32 {
                 ERROR_IO_PENDING => { }, // Expected, as we're not blocking on I/O
                 _ => {
-                    error!("Write error: {:?}", err);
                     return Err(err);
                 }
             }
