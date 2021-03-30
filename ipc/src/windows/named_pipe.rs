@@ -89,7 +89,7 @@ impl NamedPipeServer {
     pub async fn wait_for_connection(
         self,
     ) -> std::io::Result<(NamedPipeConnection, NamedPipeServer)> {
-        let (connection, server) = await!(self.wait_for_connection_internal())?;
+        let (connection, server) = self.wait_for_connection_internal().await?;
 
         Ok((connection, server))
     }
@@ -119,7 +119,7 @@ impl NamedPipeServer {
             }
         };
 
-        await!(overlapped_awaiter.await())?;
+        overlapped_awaiter.await_overlapped().await?;
 
         let connection = NamedPipeConnection::new(self.handle);
 
@@ -142,7 +142,7 @@ impl NamedPipeConnection {
         let mut bytes_read: u32 = 0;
 
         while bytes_read == 0 {
-            bytes_read = await!(self.read_internal(data))?;
+            bytes_read = self.read_internal(data).await?;
         }
 
         Ok(bytes_read)
@@ -176,7 +176,7 @@ impl NamedPipeConnection {
             return Ok(bytes_read);
         }
 
-        let bytes_read: u32 = await!(overlapped_awaiter.await())?;
+        let bytes_read: u32 = overlapped_awaiter.await_overlapped().await?;
 
         Ok(bytes_read)
     }
@@ -210,7 +210,7 @@ impl NamedPipeConnection {
             return Ok(bytes_written);
         }
 
-        let bytes_written: u32 = await!(overlapped_awaiter.await())?;
+        let bytes_written: u32 = overlapped_awaiter.await_overlapped().await?;
 
         Ok(bytes_written)
     }
@@ -254,7 +254,7 @@ mod tests {
     use super::{NamedPipeClient, NamedPipeServer};
     use crate::test_utils::{install_logger};
 
-    use futures::executor::ThreadPoolBuilder;
+    use tokio::runtime;
     use log::{info};
 
     use std::sync::mpsc::{channel, Receiver, Sender};
@@ -280,7 +280,7 @@ mod tests {
         let (server_got_connection_tx, server_got_connection_rx) = channel();
 
         let server_thread = thread::spawn(move || {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let mut pool = runtime::Runtime::new().unwrap();
 
             async fn run_server(
                 start_tx: Sender<()>,
@@ -289,7 +289,7 @@ mod tests {
                 let server = NamedPipeServer::new("horse")?;
                 start_tx.send(()).unwrap();
 
-                let (_conection, _server) = await!(server.wait_for_connection())?;
+                let (_conection, _server) = server.wait_for_connection().await?;
 
                 connect_tx.send(()).unwrap();
 
@@ -298,7 +298,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_server(server_started_tx, server_got_connection_tx)) {
+                    match run_server(server_started_tx, server_got_connection_tx).await {
                         Ok(_) => {
                             client_connected_tx.send(()).unwrap();
                         }
@@ -311,7 +311,7 @@ mod tests {
         });
 
         let client_thread = thread::spawn(move || {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let mut pool = runtime::Runtime::new().unwrap();
 
             async fn run_client(connect_rx: Receiver<()>) -> std::io::Result<()> {
                 let _client = NamedPipeClient::new("horse")?;
@@ -325,7 +325,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_client(server_got_connection_rx)) {
+                    match run_client(server_got_connection_rx).await {
                         Ok(_) => {}
                         Err(err) => {
                             panic!(format!("Test failed {}", err));
@@ -368,13 +368,13 @@ mod tests {
                 let server = NamedPipeServer::new("cow")?;
                 start_tx.send(()).unwrap();
 
-                let (connection, _server) = await!(server.wait_for_connection())?;
+                let (connection, _server) = server.wait_for_connection().await?;
 
                 let mut data: Vec<u8> = vec![0; 16];
 
                 info!("Server receiving");
 
-                let bytes_read = await!(connection.read(data.as_mut_slice()))?;
+                let bytes_read = connection.read(data.as_mut_slice()).await?;
 
                 assert_eq!(bytes_read, 16);
 
@@ -385,7 +385,7 @@ mod tests {
 
                 info!("Server sending");
 
-                let _bytes_written = await!(connection.write(data.as_slice()))?;
+                let _bytes_written = connection.write(data.as_slice()).await?;
 
                 pong_rx.recv().unwrap();
 
@@ -394,7 +394,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_server(server_started_tx, pong_rx)) {
+                    match run_server(server_started_tx, pong_rx).await {
                         Ok(_) => {
                             client_connected_tx.send(()).unwrap();
                         }
@@ -422,10 +422,10 @@ mod tests {
                 }
 
                 info!("Client sending");
-                await!(client.write(data.as_slice()))?;
+                client.write(data.as_slice()).await?;
 
                 info!("Client receiving");
-                await!(client.read(data.as_mut_slice()))?;
+                client.read(data.as_mut_slice()).await?;
 
                 for i in 0..16 {
                     assert_eq!(data[i], 2 * i as u8);
@@ -441,7 +441,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_client(pong_tx)) {
+                    match run_client(pong_tx).await {
                         Ok(_) => {}
                         Err(err) => {
                             panic!(format!("Test failed {}", err));

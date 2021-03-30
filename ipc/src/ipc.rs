@@ -18,7 +18,7 @@ impl RawIpcServer {
     }
 
     pub async fn wait_for_connection(self) -> std::io::Result<(RawIpcConnection, RawIpcServer)> {
-        let (connection, server) = await!(self.server.wait_for_connection())?;
+        let (connection, server) = self.server.wait_for_connection().await?;
 
         let new_server = RawIpcServer {
             server: server
@@ -39,11 +39,11 @@ pub struct RawIpcConnection {
 
 impl RawIpcConnection {
     pub async fn read<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
-        await!(self.connection.read(data))
+        self.connection.read(data).await
     }
 
     pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
-        await!(self.connection.write(data))
+        self.connection.write(data).await
     }
 }
 
@@ -74,7 +74,7 @@ impl MessageIpcServer {
     }
 
     pub async fn wait_for_connection(self) -> std::io::Result<(MessageIpcConnection, MessageIpcServer)> {
-        let (connection, server) = await!(self.server.wait_for_connection())?;
+        let (connection, server) = self.server.wait_for_connection().await?;
 
         let new_server = MessageIpcServer {
             server: server
@@ -102,7 +102,7 @@ impl MessageIpcConnection {
         while bytes_remaining > 0 {
             let (_, buffer) = size_bytes.split_at_mut(8 - bytes_remaining as usize);
 
-            let bytes_read = await!(self.connection.read(buffer))?;
+            let bytes_read = self.connection.read(buffer).await?;
 
             bytes_remaining -= bytes_read;
         }
@@ -119,7 +119,7 @@ impl MessageIpcConnection {
             // Perform our read in 16MB chunks.
             let (buffer, _) = buffer.split_at_mut(MessageIpcConnection::get_chunk_size(bytes_remaining as usize));
 
-            bytes_remaining = bytes_remaining - await!(self.connection.read(buffer))? as u64;
+            bytes_remaining = bytes_remaining - self.connection.read(buffer).await? as u64;
         }
 
         Ok(data)
@@ -137,7 +137,7 @@ impl MessageIpcConnection {
         while bytes_remaining > 0 {
             let (_, buffer) = size_bytes.split_at(8 - bytes_remaining as usize);
 
-            let bytes_written = await!(self.connection.write(buffer))?;
+            let bytes_written = self.connection.write(buffer).await?;
 
             bytes_remaining -= bytes_written;
         }
@@ -149,7 +149,7 @@ impl MessageIpcConnection {
 
             let (buffer, _) = buffer.split_at(MessageIpcConnection::get_chunk_size(bytes_remaining as usize));
 
-            bytes_remaining = bytes_remaining - await!(self.connection.write(buffer))? as u64;
+            bytes_remaining = bytes_remaining - self.connection.write(buffer).await? as u64;
         }
 
         Ok(())
@@ -178,7 +178,7 @@ mod tests {
     use super::{MessageIpcClient, MessageIpcServer};
     use crate::test_utils::{get_server_name, install_logger};
 
-    use futures::executor::ThreadPoolBuilder;
+    use tokio::runtime;
     use log::{info};
 
     use std::sync::mpsc::{channel, Receiver, Sender};
@@ -202,7 +202,7 @@ mod tests {
             .name(server_name.to_owned() + "_server")
             .spawn(move || 
         {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let mut pool = runtime::Runtime::new().unwrap();
 
             async fn run_server(
                 start_tx: Sender<()>,
@@ -212,11 +212,11 @@ mod tests {
                 let server = MessageIpcServer::new(server_name)?;
                 start_tx.send(()).unwrap();
 
-                let (connection, _server) = await!(server.wait_for_connection())?;
+                let (connection, _server) = server.wait_for_connection().await?;
 
                 info!("Server receiving");
 
-                let message = await!(connection.read())?;
+                let message = connection.read().await?;
                 let message = String::from_utf8_lossy(message.as_slice());
 
                 assert_eq!(message, "hello world");
@@ -225,7 +225,7 @@ mod tests {
 
                 let response = "Goodbye.".as_bytes();
 
-                await!(connection.write(response))?;
+                connection.write(response).await?;
 
                 pong_rx.recv().unwrap();
 
@@ -234,7 +234,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_server(server_started_tx, pong_rx, &server_server_name)) {
+                    match run_server(server_started_tx, pong_rx, &server_server_name).await {
                         Ok(_) => {
                             client_connected_tx.send(()).unwrap();
                         }
@@ -252,7 +252,7 @@ mod tests {
             .name(server_name.to_owned() + "client")
             .spawn(move || 
         {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let mut pool = runtime::Runtime::new().unwrap();
 
             async fn run_client(pong_tx: Sender<()>, server_name: &str) -> std::io::Result<()> {
                 let client = MessageIpcClient::new(server_name)?;
@@ -260,10 +260,10 @@ mod tests {
                 let data = "hello world".as_bytes();
 
                 info!("Client sending");
-                await!(client.write(data))?;
+                client.write(data).await?;
 
                 info!("Client receiving");
-                let response = await!(client.read())?;
+                let response = client.read().await?;
 
                 let response = String::from_utf8_lossy(response.as_slice());
 
@@ -279,7 +279,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_client(pong_tx, &client_server_name)) {
+                    match run_client(pong_tx, &client_server_name).await {
                         Ok(_) => {}
                         Err(err) => {
                             panic!(format!("Test failed {}", err));
@@ -329,7 +329,7 @@ mod tests {
             .name(server_name.to_owned() + "_server")
             .spawn(move || 
         {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let mut pool = runtime::Runtime::new().unwrap();
 
             async fn run_server(
                 start_tx: Sender<()>,
@@ -339,11 +339,11 @@ mod tests {
                 let server = MessageIpcServer::new(server_name)?;
                 start_tx.send(()).unwrap();
 
-                let (connection, _server) = await!(server.wait_for_connection())?;
+                let (connection, _server) = server.wait_for_connection().await?;
 
                 info!("Server receiving");
 
-                let message = await!(connection.read())?;
+                let message = connection.read().await?;
 
                 validate_message(message);
 
@@ -351,7 +351,7 @@ mod tests {
 
                 let message = allocate_message(100 * 1024 * 1024);
 
-                await!(connection.write(&message))?;
+                connection.write(&message).await?;
 
                 pong_rx.recv().unwrap();
 
@@ -360,7 +360,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_server(server_started_tx, pong_rx, &server_server_name)) {
+                    match run_server(server_started_tx, pong_rx, &server_server_name).await {
                         Ok(_) => {
                             client_connected_tx.send(()).unwrap();
                         }
@@ -378,7 +378,7 @@ mod tests {
             .name(server_name.to_owned() + "client")
             .spawn(move || 
         {
-            let mut pool = ThreadPoolBuilder::new().pool_size(1).create().unwrap();
+            let mut pool = runtime::Runtime::new().unwrap();
 
             async fn run_client(pong_tx: Sender<()>, server_name: &str) -> std::io::Result<()> {
                 let client = MessageIpcClient::new(server_name)?;
@@ -386,10 +386,10 @@ mod tests {
                 let message = allocate_message(100 * 1024 * 1024);
 
                 info!("Client sending");
-                await!(client.write(&message))?;
+                client.write(&message).await?;
 
                 info!("Client receiving");
-                let message = await!(client.read())?;
+                let message = client.read().await?;
 
                 validate_message(message);
 
@@ -403,7 +403,7 @@ mod tests {
 
             pool.run(
                 async {
-                    match await!(run_client(pong_tx, &client_server_name)) {
+                    match run_client(pong_tx, &client_server_name).await {
                         Ok(_) => {}
                         Err(err) => {
                             panic!(format!("Test failed {}", err));

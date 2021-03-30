@@ -82,8 +82,8 @@ pub struct OverlappedAwaiter {
 
 impl OverlappedAwaiter {
     /// Blocks the current task until the associated overlapped completes.
-    pub async fn await(self) -> io::Result<u32> {
-        let bytes_transferred = await!(OverlappedFuture::new(self.overlapped))?;
+    pub async fn await_overlapped(self) -> io::Result<u32> {
+        let bytes_transferred = OverlappedFuture::new(self.overlapped).await?;
 
         Ok(bytes_transferred)
     }

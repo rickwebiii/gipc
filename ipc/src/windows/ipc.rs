@@ -22,7 +22,7 @@ impl IpcServerWrapper {
     pub async fn wait_for_connection(
         self,
     ) -> std::io::Result<(IpcConnectionWrapper, IpcServerWrapper)> {
-        let (pipe_connection, server) = await!(self.pipe.wait_for_connection())?;
+        let (pipe_connection, server) = self.pipe.wait_for_connection().await?;
 
         Ok((
             IpcConnectionWrapper::new(pipe_connection),
@@ -43,11 +43,11 @@ impl IpcConnectionWrapper {
     }
 
     pub async fn read<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
-        await!(self.pipe_connection.read(data))
+        self.pipe_connection.read(data).await
     }
 
     pub async fn write<'a>(&'a self, data: &'a [u8]) -> std::io::Result<u32> {
-        await!(self.pipe_connection.write(data))
+        self.pipe_connection.write(data).await
     }
 }
 
