@@ -329,7 +329,7 @@ mod tests {
                             client_connected_tx.send(()).unwrap();
                         }
                         Err(err) => {
-                            panic!(format!("Test failed {}", err));
+                            panic!("Test failed {}", err);
                         }
                     };
                 },
@@ -354,7 +354,7 @@ mod tests {
                     match run_client(server_got_connection_rx).await {
                         Ok(_) => {}
                         Err(err) => {
-                            panic!(format!("Test failed {}", err));
+                            panic!("Test failed {}", err);
                         }
                     };
                 },
@@ -425,7 +425,7 @@ mod tests {
                             client_connected_tx.send(()).unwrap();
                         }
                         Err(err) => {
-                            panic!(format!("Test failed {}", err));
+                            panic!("Test failed {}", err);
                         }
                     };
                 },
@@ -469,7 +469,7 @@ mod tests {
                 match run_client(pong_tx).await {
                     Ok(_) => {}
                     Err(err) => {
-                        panic!(format!("Test failed {}", err));
+                        panic!("Test failed {}", err);
                     }
                 };
             });
