@@ -164,10 +164,6 @@ impl NamedPipeConnection {
 
         let overlapped = Box::new(overlapped);
 
-        if cfg!(debug_assertions) {
-            trace!("Reading {} bytes on pipe handle {}", data.len(), self.handle.id);
-        }
-
         let result = unsafe {
             ReadFile(
                 self.handle.value,
@@ -204,10 +200,6 @@ impl NamedPipeConnection {
         let mut bytes_written: u32 = 0;
 
         let overlapped = Box::new(overlapped);
-
-        if cfg!(debug_assertions) {
-            trace!("Writing {} bytes to pipe handle {}", data.len(), self.handle.id);
-        }
 
         let result = unsafe {
             WriteFile(
