@@ -127,7 +127,7 @@ impl NamedPipeServer {
             }
         };
 
-        overlapped_awaiter.await_overlapped().await?;
+        overlapped_awaiter.await?;
 
         trace!("Got a connection");
 
@@ -159,10 +159,10 @@ impl NamedPipeConnection {
     }
 
     async fn read_internal<'a>(&'a self, data: &'a mut [u8]) -> std::io::Result<u32> {
-        let (overlapped, overlapped_awaiter) = Overlapped::new()?;
+        let (overlapped, overlapped_future) = Overlapped::new()?;
         let mut bytes_read: u32 = 0;
 
-        let overlapped = Arc::new(overlapped);
+        let overlapped = Box::new(overlapped);
 
         if cfg!(debug_assertions) {
             trace!("Reading {} bytes on pipe handle {}", data.len(), self.handle.id);
@@ -174,7 +174,7 @@ impl NamedPipeConnection {
                 data.as_mut_ptr() as *mut c_void,
                 data.len() as u32,
                 &mut bytes_read,
-                mem::transmute(Arc::into_raw(overlapped)),
+                mem::transmute(Box::into_raw(overlapped)),
             )
         };
 
@@ -192,7 +192,7 @@ impl NamedPipeConnection {
             return Ok(bytes_read);
         }
 
-        let bytes_read: u32 = overlapped_awaiter.await_overlapped().await?;
+        let bytes_read: u32 = overlapped_future.await?;
 
         Ok(bytes_read)
     }
@@ -203,7 +203,7 @@ impl NamedPipeConnection {
         let (overlapped, overlapped_awaiter) = Overlapped::new()?;
         let mut bytes_written: u32 = 0;
 
-        let overlapped = Arc::new(overlapped);
+        let overlapped = Box::new(overlapped);
 
         if cfg!(debug_assertions) {
             trace!("Writing {} bytes to pipe handle {}", data.len(), self.handle.id);
@@ -215,7 +215,7 @@ impl NamedPipeConnection {
                 data.as_ptr() as *const c_void,
                 data.len() as u32,
                 &mut bytes_written,
-                mem::transmute(Arc::into_raw(overlapped)),
+                mem::transmute(Box::into_raw(overlapped)),
             )
         };
 
@@ -233,7 +233,7 @@ impl NamedPipeConnection {
             return Ok(bytes_written);
         }
 
-        let bytes_written: u32 = overlapped_awaiter.await_overlapped().await?;
+        let bytes_written: u32 = overlapped_awaiter.await?;
 
         Ok(bytes_written)
     }

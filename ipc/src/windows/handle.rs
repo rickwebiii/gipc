@@ -49,7 +49,7 @@ impl Drop for Handle {
 
         trace!("Handle: closed {}", self.id);
 
-        // let _ = unsafe { CloseHandle(self.value) };
+        let _ = unsafe { CloseHandle(self.value) };
     }
 
     #[cfg(not(debug_assertions))]

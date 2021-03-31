@@ -9,15 +9,13 @@ use winapi::{
     },
 };
 
+use futures::channel::oneshot::{self, Sender, Receiver};
+
 use std::future::Future;
 use std::io;
 use std::mem;
-use std::cell::RefCell;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic;
-use std::sync::atomic::Ordering;
-use std::task::{ Context, Poll, Waker };
+use std::task::{ Context, Poll };
 
 #[repr(C)]
 #[derive(Clone, Debug)]
@@ -31,8 +29,7 @@ pub struct OverlappedCompletionInfo {
 /// The data associated with a Win32 I/O operation.
 pub struct Overlapped {
     overlapped: OVERLAPPED,
-    waker: RefCell<Option<Waker>>,
-    completion_info: RefCell<Option<OverlappedCompletionInfo>>
+    tx_info: Sender<OverlappedCompletionInfo>,
 }
 
 unsafe impl Sync for Overlapped {}
@@ -40,75 +37,57 @@ unsafe impl Send for Overlapped {}
 
 impl Overlapped {
     /// Creates a new Overlapped structure for use with Win32 async I/O operations.
-    pub fn new() -> io::Result<(Arc<Overlapped>, OverlappedAwaiter)> {
+    pub fn new() -> io::Result<(Overlapped, OverlappedFuture)> {
         let overlapped: OVERLAPPED = unsafe { mem::zeroed() };
         
-        let overlapped_wrapper = Arc::new(Overlapped {
-            overlapped: overlapped,
-            waker: RefCell::new(None),
-            completion_info: RefCell::new(None)
-        });
+        let (tx, rx) = oneshot::channel();
 
-        let overlapped_awaiter = OverlappedAwaiter {
-            overlapped: overlapped_wrapper.clone()
+        let overlapped_wrapper = Overlapped {
+            overlapped: overlapped,
+            tx_info: tx,
         };
 
-        Ok((overlapped_wrapper, overlapped_awaiter))
+        let future = OverlappedFuture {
+            rx_info: rx,
+        };
+
+        Ok((overlapped_wrapper, future))
     }
 
-    /// Sets the completion info for the finished I/O operation.
-    pub fn set_completion_info(&self, info: OverlappedCompletionInfo) {
-        self.completion_info.borrow_mut().replace(info);
-    }
+    pub fn resolve(self, info: OverlappedCompletionInfo) -> io::Result<()> {
+        self.tx_info.send(info)
+            .map_err(|_| { io::Error::new(io::ErrorKind::Interrupted, "Oneshot cancelled") })?;
 
-    /// Gets the completion info associated with the completed overlapped operation, or None if
-    /// the operation hansn't completed.
-    pub fn get_completion_info(&self) -> Option<OverlappedCompletionInfo> {
-        self.completion_info.borrow().clone()
-    }
-
-    /// Gets the waker that alerts the task this overlapped operation needs polling (i.e. has completed).
-    pub fn get_waker(&self) -> Option<Waker> {
-        self.waker.borrow().clone()
-    }
-
-    fn set_waker(&self, waker: &Waker) {
-        self.waker.borrow_mut().replace(waker.clone());
+        Ok(())
     }
 }
 
-/// A item returned with an overlapped that you can await for the associated I/O operation
-/// to complete.
-pub struct OverlappedAwaiter {
-    overlapped: Arc<Overlapped>,
-}
-
-impl OverlappedAwaiter {
-    /// Blocks the current task until the associated overlapped completes.
-    pub async fn await_overlapped(self) -> io::Result<u32> {
-        let bytes_transferred = OverlappedFuture::new(self.overlapped.clone()).await?;
-
-        Ok(bytes_transferred)
-    }
-}
-
-struct OverlappedFuture {
-    overlapped: Arc<Overlapped>,
-}
-
-impl OverlappedFuture {
-    /// Creates a new Overlapped task that can poll Win32 I/O operations.
-    pub fn new(overlapped: Arc<Overlapped>) -> OverlappedFuture {
-        OverlappedFuture {
-            overlapped: overlapped,
-        }
-    }
+pub struct OverlappedFuture {
+    rx_info: Receiver<OverlappedCompletionInfo>,
 }
 
 impl Future for OverlappedFuture {
     type Output = io::Result<u32>;
 
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        futures::future::Future::poll(Pin::new(&mut self.rx_info), ctx)
+            .map(|info_result| {
+                match info_result {
+                    Ok(info) => {
+                        if info.error != ERROR_SUCCESS as i32 {
+                            Err(std::io::Error::from_raw_os_error(info.error))
+                        } else {
+                            Ok(info.bytes_transferred)
+                        }
+                        
+                    },
+                    Err(_) => {
+                        Err(std::io::Error::new(io::ErrorKind::Interrupted, "Oneshot cancelled"))
+                    }
+                }
+            })
+        
+        /*
         self.overlapped.set_waker(ctx.waker());
 
         // Guarantee we never perceive the iocp thread waking us before it's written its
@@ -126,6 +105,6 @@ impl Future for OverlappedFuture {
             None => {
                 Poll::Pending
             }
-        }
+        }*/
     }
 }

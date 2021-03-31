@@ -28,12 +28,12 @@ use winapi::{
 use super::handle::{Handle};
 use super::overlapped::{Overlapped, OverlappedCompletionInfo};
 
+use log::error;
+
 use std::io::ErrorKind;
 use std::mem;
 use std::ptr;
-use std::sync::{Arc, Once};
-use std::sync::atomic;
-use std::sync::atomic::{Ordering};
+use std::sync::{Once};
 use std::thread;
 
 pub struct CompletionPort {
@@ -53,40 +53,34 @@ impl CompletionPort {
     pub fn get() -> std::io::Result<&'static CompletionPort> {
         let mut error: Option<std::io::Error> = None;
 
-        unsafe {
-            COMPLETION_THREAD_INIT.call_once(|| {
-                let result = CompletionPort::new();
+        COMPLETION_THREAD_INIT.call_once(|| {
+            let result = CompletionPort::new();
 
-                match result {
-                    Ok(port) => { COMPLETION_PORT_SINGLETON = Some(port) },
-                    Err(err) => { error = Some(err); return (); }
-                };
+            // Need unsafe here to update singleton
+            match result {
+                Ok(port) => unsafe { COMPLETION_PORT_SINGLETON = Some(port) },
+                Err(err) => { error = Some(err); return (); }
+            };
 
-                let result = thread::Builder::new().name("IO Completion Thread".to_owned()).spawn(move || {
-                    loop {
-                        let overlapped = CompletionPort::get()
-                            .expect("Couldn't get I/O completion port. Named pipes won't work.")
-                            .get_completion_status();
-
-                        match overlapped.get_waker() {
-                            Some(waker) => { waker.wake(); }
-                            None => { panic!("Invariant violated: waker not set.") }
-                        }
-                    }
-                });
-
-                if let Err(err) = result {
-                    error = Some(err);
+            let result = thread::Builder::new().name("IO Completion Thread".to_owned()).spawn(move || {
+                loop {
+                    CompletionPort::get()
+                        .expect("Couldn't get I/O completion port. Named pipes won't work.")
+                        .notify_completion_status();
                 }
             });
-        
-            match error {
-                Some(err) => Err(err),
-                None => {
-                    match &COMPLETION_PORT_SINGLETON {
-                        Some(iocp) => Ok(iocp),
-                        None => Err(std::io::Error::from(ErrorKind::Other))
-                    }
+
+            if let Err(err) = result {
+                error = Some(err);
+            }
+        });
+    
+        match error {
+            Some(err) => Err(err),
+            None => unsafe {
+                match &COMPLETION_PORT_SINGLETON {
+                    Some(iocp) => Ok(iocp),
+                    None => Err(std::io::Error::from(ErrorKind::Other))
                 }
             }
         }
@@ -160,7 +154,7 @@ impl CompletionPort {
 
     /// Blocks the current thread on the completion port until an I/O operation completes, and then populates the
     /// results into 
-    fn get_completion_status(&self) -> Arc<Overlapped> {
+    fn notify_completion_status(&self) {
         let mut bytes_transferred: u32 = 0;
         let mut dummy: usize = 0;
         let mut overlapped: *mut OVERLAPPED = ptr::null_mut();
@@ -189,18 +183,16 @@ impl CompletionPort {
             }
         }
 
-        unsafe {
-            (*overlapped_coerced).set_completion_info(OverlappedCompletionInfo {
-                error: raw_err,
-                bytes_transferred: bytes_transferred
-            });
+        let box_overlapped = unsafe {
+            Box::from_raw(overlapped_coerced)
+        };
 
-            // The intent is for get_completion_status function to be called from a different thread than the one 
-            // awaiting the I/O event. As such, we need to guarantee the awaiting threads see the set_completion_info
-            // before this thread calls the waker.
-            atomic::fence(Ordering::Acquire);
-
-            Arc::from_raw(overlapped_coerced)
-        }
+        match box_overlapped.resolve(OverlappedCompletionInfo {
+            error: raw_err,
+            bytes_transferred: bytes_transferred
+        }) {
+            Ok(_) => {},
+            Err(e) => error!("Failed to notify completion {:?}", e)
+        };
     }
 }
