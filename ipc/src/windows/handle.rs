@@ -9,6 +9,8 @@ static HANDLE_ID: AtomicUsize = AtomicUsize::new(0);
 #[cfg(debug_assertions)]
 static NUM_HANDLES: AtomicUsize = AtomicUsize::new(0);
 
+use log::trace;
+
 #[derive(Debug)]
 pub struct Handle {
     pub value: HANDLE,
@@ -22,6 +24,7 @@ impl Handle {
     pub fn new(handle: HANDLE) -> Handle {
         let id = HANDLE_ID.fetch_add(1, Ordering::SeqCst);
         NUM_HANDLES.fetch_add(1, Ordering::SeqCst);
+        trace!("Handle: created {}", id);
 
         Handle { value: handle, id: id }
     }
@@ -44,7 +47,9 @@ impl Drop for Handle {
     fn drop(&mut self) {
         NUM_HANDLES.fetch_sub(1, Ordering::SeqCst);
 
-        let _ = unsafe { CloseHandle(self.value) };
+        trace!("Handle: closed {}", self.id);
+
+        // let _ = unsafe { CloseHandle(self.value) };
     }
 
     #[cfg(not(debug_assertions))]

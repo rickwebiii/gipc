@@ -1,4 +1,4 @@
-use simplelog::{Config, LevelFilter, TermLogger};
+use simplelog::{Config, LevelFilter, TermLogger, TerminalMode, ColorChoice};
 
 use std::sync::{Once};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,7 +8,7 @@ static IPC_SERVER_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub fn install_logger() {
     START.call_once(|| {
-        TermLogger::init(LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::init(LevelFilter::Trace, Config::default(), TerminalMode::Mixed, ColorChoice::Always).unwrap();
     });
 }
 

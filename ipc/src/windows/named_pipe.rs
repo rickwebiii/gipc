@@ -20,6 +20,8 @@ use super::completion_port::{CompletionPort};
 use super::handle::Handle;
 use super::overlapped::Overlapped;
 
+use log::trace;
+
 use std::ffi::{c_void, OsStr, OsString};
 use std::os::windows::ffi::OsStrExt;
 use std::mem;
@@ -55,6 +57,8 @@ impl NamedPipeServer {
         };
         let pipe_name = name.to_owned();
         let pipe_name_bytes = make_pipe_name(&pipe_name);
+
+        trace!("Creating named pipe as {:?}", pipe_name);
 
         let handle = unsafe {
             // SECURITY: Reject remote clients, as this presents potential security ramifications for consumers
@@ -103,6 +107,8 @@ impl NamedPipeServer {
 
         let overlapped = Arc::new(overlapped);
 
+        trace!("Waiting for connection on named pipe");
+
         let success = unsafe { ConnectNamedPipe(self.handle.value, mem::transmute(Arc::into_raw(overlapped))) };
 
         // If the client connected between us creating the pipe and calling ConnectNamedPipe,
@@ -122,6 +128,8 @@ impl NamedPipeServer {
         };
 
         overlapped_awaiter.await_overlapped().await?;
+
+        trace!("Got a connection");
 
         let connection = NamedPipeConnection::new(self.handle);
 
@@ -155,6 +163,10 @@ impl NamedPipeConnection {
         let mut bytes_read: u32 = 0;
 
         let overlapped = Arc::new(overlapped);
+
+        if cfg!(debug_assertions) {
+            trace!("Reading {} bytes on pipe handle {}", data.len(), self.handle.id);
+        }
 
         let result = unsafe {
             ReadFile(
@@ -193,6 +205,10 @@ impl NamedPipeConnection {
 
         let overlapped = Arc::new(overlapped);
 
+        if cfg!(debug_assertions) {
+            trace!("Writing {} bytes to pipe handle {}", data.len(), self.handle.id);
+        }
+
         let result = unsafe {
             WriteFile(
                 self.handle.value,
@@ -209,6 +225,7 @@ impl NamedPipeConnection {
             match err.raw_os_error().unwrap() as u32 {
                 ERROR_IO_PENDING => { }, // Expected, as we're not blocking on I/O
                 _ => {
+                    trace!("Failed to write data: {:?}", err);
                     return Err(err);
                 }
             }
@@ -230,6 +247,8 @@ impl NamedPipeClient {
     pub fn new(pipe_name: &str) -> std::io::Result<NamedPipeConnection> {
         let pipe_name_bytes = make_pipe_name(&OsString::from(PIPE_PREFIX.to_owned() + pipe_name));
 
+        trace!("Connecting to named pipe {}", pipe_name);
+
         let handle = unsafe {
             CreateFileW(
                 pipe_name_bytes.as_ptr(),
@@ -243,6 +262,7 @@ impl NamedPipeClient {
         };
 
         if handle == INVALID_HANDLE_VALUE {
+            trace!("Failed to connect to named pipe: {:?}", std::io::Error::last_os_error());
             return Err(std::io::Error::last_os_error());
         }
 
